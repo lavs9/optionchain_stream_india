@@ -1,7 +1,11 @@
 import os
 import logging
 import time
-from optionchain_stream.brokers.fyers_broker import FyersBroker
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from optionchain_stream.brokers.upstox_broker import UpstoxBroker
 from optionchain_stream.models import Tick
 
 # Configure logging
@@ -12,15 +16,18 @@ def on_tick(ticks):
         print(f"Received Tick: {tick}")
 
 def main():
-    client_id = os.getenv("FYERS_CLIENT_ID")
-    access_token = os.getenv("FYERS_ACCESS_TOKEN")
-    
-    if not client_id or not access_token:
-        print("Please set FYERS_CLIENT_ID and FYERS_ACCESS_TOKEN environment variables.")
+    access_token = os.getenv("UPSTOX_ACCESS_TOKEN")
+    if not access_token:
+        print("Please set UPSTOX_ACCESS_TOKEN environment variable.")
         return
 
-    print("Initializing Fyers Broker...")
-    broker = FyersBroker(client_id, access_token)
+    print("Initializing Upstox Broker...")
+    broker = UpstoxBroker(
+        client_id=os.getenv("UPSTOX_CLIENT_ID", "dummy_id"),
+        client_secret=os.getenv("UPSTOX_CLIENT_SECRET", "dummy_secret"),
+        redirect_uri=os.getenv("UPSTOX_REDIRECT_URI", "http://localhost"),
+        access_token=access_token
+    )
 
     print("Fetching instruments to find a valid token...")
     provider = broker.get_instrument_provider()
@@ -29,7 +36,7 @@ def main():
     # Find MCX instruments
     target_tokens = []
     for inst in instruments:
-        if inst.exchange == "MCX" and "FUT" in inst.name:
+        if inst.exchange == "MCX" and "FUT" in inst.instrument_type:
              target_tokens.append(inst.token)
              print(f"Found MCX Token: {inst.token} ({inst.symbol})")
              if len(target_tokens) >= 5:

@@ -1,4 +1,8 @@
 import time
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from typing import List, Dict, Any, Callable
 from datetime import datetime
 from optionchain_stream.broker_interface import Broker

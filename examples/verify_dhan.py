@@ -1,7 +1,11 @@
 import os
 import logging
 import time
-from optionchain_stream.brokers.upstox_broker import UpstoxBroker
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from optionchain_stream.brokers.dhan_broker import DhanBroker
 from optionchain_stream.models import Tick
 
 # Configure logging
@@ -12,24 +16,21 @@ def on_tick(ticks):
         print(f"Received Tick: {tick}")
 
 def main():
-    access_token = os.getenv("UPSTOX_ACCESS_TOKEN")
-    if not access_token:
-        print("Please set UPSTOX_ACCESS_TOKEN environment variable.")
+    client_id = os.getenv("DHAN_CLIENT_ID")
+    access_token = os.getenv("DHAN_ACCESS_TOKEN")
+    
+    if not client_id or not access_token:
+        print("Please set DHAN_CLIENT_ID and DHAN_ACCESS_TOKEN environment variables.")
         return
 
-    print("Initializing Upstox Broker...")
-    broker = UpstoxBroker(
-        client_id=os.getenv("UPSTOX_CLIENT_ID", "dummy_id"),
-        client_secret=os.getenv("UPSTOX_CLIENT_SECRET", "dummy_secret"),
-        redirect_uri=os.getenv("UPSTOX_REDIRECT_URI", "http://localhost"),
-        access_token=access_token
-    )
+    print("Initializing Dhan Broker...")
+    broker = DhanBroker(client_id, access_token)
 
     print("Fetching instruments to find a valid token...")
     provider = broker.get_instrument_provider()
     instruments = provider.fetch_instruments()
     
-    # Find MCX instruments
+    # Find MCX instrument first (as it might be open late)
     target_tokens = []
     for inst in instruments:
         if inst.exchange == "MCX" and "FUT" in inst.instrument_type:
@@ -42,7 +43,7 @@ def main():
         # Fallback to NSE Nifty
         for inst in instruments:
             if "Nifty 50" in inst.name or "NIFTY 50" in inst.name:
-                 if inst.exchange == "NSE":
+                 if inst.exchange == "NSE_INDEX":
                      target_tokens.append(inst.token)
                      print(f"Found Nifty 50 Token: {inst.token}")
                      break
@@ -56,6 +57,11 @@ def main():
         broker.on_tick(on_tick)
         broker.connect()
         broker.subscribe(target_tokens)
+        
+        # Test Option Chain Polling (Placeholder)
+        # print("Testing Option Chain Polling...")
+        # chain = broker.fetch_option_chain("NIFTY", "2023-10-26")
+        # print(f"Option Chain: {chain}")
         
         print("Listening for ticks... Press Ctrl+C to stop.")
         try:

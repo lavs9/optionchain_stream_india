@@ -105,10 +105,10 @@ broker.subscribe(nifty_tokens)
 ### Verification Scripts
 We have provided verification scripts to test each broker independently:
 
-*   **Zerodha**: `python3 verify_zerodha.py`
-*   **Upstox**: `python3 verify_upstox.py`
-*   **Dhan**: `python3 verify_dhan.py`
-*   **Fyers**: `python3 verify_fyers.py`
+*   **Zerodha**: `python3 examples/verify_zerodha.py` (if available)
+*   **Upstox**: `python3 examples/verify_upstox.py`
+*   **Dhan**: `python3 examples/verify_dhan.py`
+*   **Fyers**: `python3 examples/verify_fyers.py`
 
 ## Architecture
 
