@@ -1,45 +1,49 @@
-"""
-@author: rakeshr
-"""
-from kiteconnect import KiteConnect
-from optionchain_stream.websocket import WebsocketClient
-from optionchain_stream.instrument_file import InstrumentMaster
+import logging
+from multiprocessing import Queue
+from typing import List, Dict, Any
+from optionchain_stream.broker_interface import Broker
+from optionchain_stream.storage_interface import Storage
+from optionchain_stream.redis_storage import RedisStorage
+from optionchain_stream.models import Tick
 
-class OptionChain():
-    """
-    Wrapper class to fetch option chain steaming data
-    """
-    def __init__(self, symbol, expiry, api_key, api_secret=None, request_token=None, access_token=None, underlying=False):
+class OptionChain:
+    def __init__(self, symbol: str, expiry: str, broker: Broker, storage: Storage = None, underlying: bool = False):
         self.symbol = symbol
         self.expiry = expiry
-        self.api_key = api_key
-        self.api_secret = api_secret
-        self.request_token = request_token
-        self.access_token = access_token
+        self.broker = broker
+        self.storage = storage if storage else RedisStorage()
         self.underlying = underlying
-        self.instrumentClass = InstrumentMaster(self.api_key)
+        self.q = Queue()
 
     def sync_instruments(self):
         """
-        Sync master instrument to redis
+        Sync master instrument to storage.
         """
-        self.instrumentClass.filter_redis_dump()
-    
+        provider = self.broker.get_instrument_provider()
+        instruments = provider.fetch_instruments()
+        # Logic to store instruments would go here
+        pass
+
+    def _process_ticks(self, ticks: List[Tick]):
+        for tick in ticks:
+            # Store to storage
+            self.storage.store_tick(self.symbol, tick.token, tick)
+            # Put to queue for consumption
+            self.q.put(tick)
+
     def create_option_chain(self):
         """
-        Wrapper method to fetch sreaming option chain for requested symbol/expiry
+        Start the stream.
         """
-        # Assign/generate access_token using request_token and api_secret
-        if self.api_secret and self.request_token:
-            self.kite = KiteConnect(api_key=self.api_key)
-            self.data = self.kite.generate_session(self.request_token, api_secret=self.api_secret)
-            self.access_token = self.data["access_token"]
-        elif self.access_token:
-            self.access_token = self.access_token
+        # 1. Fetch tokens for the symbol and expiry
+        # In a real scenario, we'd use the instrument provider to filter tokens
+        tokens = [] 
 
-        self.socketClient = WebsocketClient(self.symbol, self.expiry, self.api_key, self.access_token, self.underlying)
-        # create streaming websocket data
-        self.socketClient.queue_callBacks()
-        # Keep fetching streaming Queue
-        while 1:
-            yield self.socketClient.q.get()
+        # 2. Subscribe
+        self.broker.on_tick(self._process_ticks)
+        self.broker.connect()
+        self.broker.subscribe(tokens)
+
+        # 3. Yield data
+        while True:
+            yield self.q.get()
