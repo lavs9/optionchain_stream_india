@@ -1,0 +1,10 @@
+redis
+clickhouse-driver
+boto3
+pandas
+requests
+websocket-client
+kiteconnect
+upstox-python-sdk
+dhanhq
+fyers-apiv3
