@@ -36,7 +36,7 @@ class UpstoxInstrumentProvider(InstrumentProvider):
                         expiry = None
         
                     inst = Instrument(
-                        exchange=item.get('exchange'),
+                        exchange=item.get('segment'), # Use segment as exchange (e.g. NSE_FO, NSE_EQ)
                         token=item.get('instrument_key'),
                         symbol=item.get('trading_symbol'),
                         name=item.get('name'),

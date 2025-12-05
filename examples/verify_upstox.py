@@ -33,22 +33,25 @@ def main():
     provider = broker.get_instrument_provider()
     instruments = provider.fetch_instruments()
     
-    # Find MCX instruments
+    # Prioritize NSE Nifty
     target_tokens = []
     for inst in instruments:
-        if inst.exchange == "MCX" and "FUT" in inst.instrument_type:
-             target_tokens.append(inst.token)
-             print(f"Found MCX Token: {inst.token} ({inst.symbol})")
-             if len(target_tokens) >= 5:
-                 break
+        # Look for Nifty 50 Index or Futures
+        # Relaxed search: just check symbol or name
+        if "NIFTY" in inst.symbol or "NIFTY" in inst.name:
+             if inst.exchange == "NSE_INDEX" or inst.exchange == "NSE_FO":
+                 target_tokens.append(inst.token)
+                 print(f"Found Nifty Token: {inst.token} ({inst.symbol})")
+                 if len(target_tokens) >= 1:
+                     break
     
     if not target_tokens:
-        # Fallback to NSE Nifty
+        # Fallback to MCX
         for inst in instruments:
-            if "Nifty 50" in inst.name or "NIFTY 50" in inst.name:
-                 if inst.exchange == "NSE":
-                     target_tokens.append(inst.token)
-                     print(f"Found Nifty 50 Token: {inst.token}")
+            if inst.exchange == "MCX" and "FUT" in inst.instrument_type:
+                 target_tokens.append(inst.token)
+                 print(f"Found MCX Token: {inst.token} ({inst.symbol})")
+                 if len(target_tokens) >= 5:
                      break
     
     if not target_tokens and instruments:

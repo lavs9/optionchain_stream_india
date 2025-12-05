@@ -17,6 +17,8 @@ class UpstoxBroker(Broker):
         self.instrument_provider = UpstoxInstrumentProvider()
         self.callbacks = []
         self.streamer = None
+        self.subscribed_tokens = set()
+        self.api_client = None
 
     def authenticate(self):
         if not self.access_token:
@@ -29,9 +31,19 @@ class UpstoxBroker(Broker):
         
         # Register callbacks
         self.streamer.on("message", self._on_market_data_handler)
-        self.streamer.on("open", lambda: logging.info("Upstox WebSocket Opened"))
-        self.streamer.on("close", lambda: logging.info("Upstox WebSocket Closed"))
+        self.streamer.on("open", self._on_open)
+        self.streamer.on("close", lambda code, reason: logging.info(f"Upstox WebSocket Closed: {code} {reason}"))
         self.streamer.on("error", lambda error: logging.error(f"Upstox WebSocket Error: {error}"))
+
+    def _on_open(self):
+        logging.info("Upstox WebSocket Opened")
+        if self.subscribed_tokens:
+            logging.info(f"Resubscribing to {len(self.subscribed_tokens)} tokens")
+            # Convert set back to list
+            tokens = list(self.subscribed_tokens)
+            # We need to know the mode. Assuming 'full' for now or we need to store mode per token.
+            # For simplicity, let's assume one mode for all or default to full.
+            self.streamer.subscribe(tokens, mode="full")
 
     def get_instrument_provider(self) -> InstrumentProvider:
         return self.instrument_provider
@@ -40,11 +52,18 @@ class UpstoxBroker(Broker):
         if not self.streamer:
             self.authenticate()
             
+        # Add to local cache
+        for t in tokens:
+            self.subscribed_tokens.add(t)
+            
         # Map mode to Upstox mode
         upstox_mode = "full" if mode == "full" else "ltpc"
         
-        # Subscribe
-        self.streamer.subscribe(tokens, mode=upstox_mode)
+        # Try to subscribe immediately if connected (how to check? just try)
+        try:
+            self.streamer.subscribe(tokens, mode=upstox_mode)
+        except Exception as e:
+            logging.warning(f"Subscribe failed (will retry on open): {e}")
 
     def on_tick(self, callback: Callable[[List[Tick]], None]):
         self.callbacks.append(callback)
@@ -78,6 +97,9 @@ class UpstoxBroker(Broker):
             
             # logging.info(f"Processed Dict: {d}")
             
+            # Debug: Print keys if it looks empty
+            # logging.info(f"Tick Keys: {d.keys()}")
+            
             # Ignore market_info
             if d.get('type') == 'market_info':
                 continue
@@ -92,26 +114,43 @@ class UpstoxBroker(Broker):
         # Fields depend on the mode (full vs ltpc)
         # Assuming 'full' mode fields
         
+        # Debug type
+        # logging.info(f"Data Type: {type(data)}")
+        
+        # Helper to get value from dict or object
+        def get_val(obj, key, default=None):
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+            return getattr(obj, key, default)
+
         # Extract timestamp
         ts = datetime.now()
-        if 'timestamp' in data and data['timestamp']:
-             # Upstox timestamp might be in ms
+        raw_ts = get_val(data, 'timestamp') or get_val(data, 'ltt')
+        if raw_ts:
              try:
-                 ts = datetime.fromtimestamp(int(data['timestamp']) / 1000)
+                 ts = datetime.fromtimestamp(int(raw_ts) / 1000)
              except:
                  pass
+        
+        token = get_val(data, 'instrument_token') or get_val(data, 'instrument_key') or '0'
+        ltp = float(get_val(data, 'ltp') or get_val(data, 'last_price') or 0.0)
+        vol = int(get_val(data, 'volume') or get_val(data, 'vol') or get_val(data, 'v') or 0)
+        oi = int(get_val(data, 'oi') or get_val(data, 'open_interest') or 0)
+        
+        if token == '0' or ltp == 0.0:
+            logging.warning(f"Empty Tick Data (Type: {type(data)}): {data}")
 
         return Tick(
-            token=data.get('instrument_token') or data.get('instrument_key', '0'),
+            token=token,
             timestamp=ts,
-            last_price=float(data.get('ltp', 0.0) or data.get('last_price', 0.0)),
-            volume=int(data.get('volume', 0) or data.get('vol', 0)),
-            oi=int(data.get('oi', 0) or data.get('open_interest', 0)),
+            last_price=ltp,
+            volume=vol,
+            oi=oi,
             change=0.0, # Calculate if needed or extract
-            bid_price=float(data.get('depth', {}).get('buy', [{}])[0].get('price', 0.0)) if 'depth' in data else 0.0,
-            ask_price=float(data.get('depth', {}).get('sell', [{}])[0].get('price', 0.0)) if 'depth' in data else 0.0,
-            bid_qty=int(data.get('depth', {}).get('buy', [{}])[0].get('quantity', 0)) if 'depth' in data else 0,
-            ask_qty=int(data.get('depth', {}).get('sell', [{}])[0].get('quantity', 0)) if 'depth' in data else 0
+            bid_price=0.0, # Simplify for now
+            ask_price=0.0,
+            bid_qty=0,
+            ask_qty=0
         )
 
     def fetch_option_chain(self, symbol: str, expiry: str) -> Dict[str, Any]:
@@ -146,7 +185,7 @@ class UpstoxBroker(Broker):
             from upstox_client.api.options_api import OptionsApi
             options_api = OptionsApi(self.api_client)
             
-            response = options_api.get_put_call_option_chain_details(
+            response = options_api.get_put_call_option_chain(
                 instrument_key=instrument_key,
                 expiry_date=expiry
             )
