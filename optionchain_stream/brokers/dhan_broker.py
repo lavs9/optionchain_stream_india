@@ -92,13 +92,48 @@ class DhanBroker(Broker):
     def fetch_option_chain(self, symbol: str, expiry: str) -> Dict[str, Any]:
         """
         Fetch option chain using Dhan API.
+        
+        Args:
+            symbol: Underlying symbol (e.g., 'NIFTY', 'BANKNIFTY')
+            expiry: Expiry date in YYYY-MM-DD format.
         """
-        # Need to map symbol/expiry to what Dhan expects.
-        # Dhan option_chain API likely takes (exchange_segment, security_id, expiry)
-        # We need to find the underlying security_id first.
-        
-        # This is complex because we need the underlying token.
-        # For now, let's assume the user passes the underlying token as symbol or we look it up.
-        
-        # Placeholder implementation
-        return {}
+        try:
+            # Dhan option_chain API requires (exchange_segment, security_id, expiry)
+            # We need to map the symbol to security_id and exchange_segment
+            
+            # 1. Find underlying security_id
+            # This is tricky without a full lookup. 
+            # For common indices, we can hardcode or lookup in our provider if loaded.
+            
+            exch_seg = 'NSE_FNO' # Usually for options
+            security_id = '0'
+            
+            # Simple mapping for common indices
+            if symbol == 'NIFTY': 
+                security_id = '13' # Nifty 50 Index Token (Need to verify)
+                exch_seg = 'NSE_FNO' # Or NSE_INDEX? Option chain is on FNO.
+            elif symbol == 'BANKNIFTY':
+                security_id = '25' # Bank Nifty Index Token
+            
+            # If not found, try to find in provider
+            if security_id == '0':
+                inst = self.instrument_provider.get_instrument_by_symbol(symbol)
+                if inst:
+                    security_id = inst.token
+                    # Map exchange to segment
+                    if inst.exchange == 'NSE_FO': exch_seg = 'NSE_FNO'
+            
+            if security_id != '0':
+                response = self.dhan.option_chain(
+                    exchange_segment=exch_seg,
+                    security_id=security_id,
+                    expiry=expiry
+                )
+                return response
+            else:
+                logging.warning(f"Could not find security_id for {symbol}")
+                return {}
+                
+        except Exception as e:
+            logging.error(f"Error fetching Dhan option chain: {e}")
+            return {}

@@ -34,3 +34,10 @@ class Storage(ABC):
         Get instrument details by token.
         """
         pass
+
+    def snapshot(self, data: Any, prefix: str = "snapshots"):
+        """
+        Store a snapshot of data.
+        Optional method.
+        """
+        pass

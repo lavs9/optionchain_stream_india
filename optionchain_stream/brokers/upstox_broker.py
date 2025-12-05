@@ -117,12 +117,45 @@ class UpstoxBroker(Broker):
     def fetch_option_chain(self, symbol: str, expiry: str) -> Dict[str, Any]:
         """
         Fetch option chain from Upstox.
-        Note: Upstox API for option chain might require specific parameters.
-        This is a placeholder for the actual API call.
+        Uses the 'get_option_chain' or 'get_market_quote_ohlc' API.
+        
+        Args:
+            symbol: Underlying symbol (e.g., 'NIFTY', 'BANKNIFTY')
+            expiry: Expiry date in YYYY-MM-DD format.
+        
+        Returns:
+            Dict containing option chain data with Greeks.
         """
         if not self.api_client:
             self.authenticate()
             
-        # Example: self.api_client.call_api(...)
-        # For now return empty dict as we need to research the exact endpoint
-        return {}
+        try:
+            # Upstox SDK usually has a method to get option chain
+            # We need to construct the instrument key for the underlying
+            # For NIFTY, it might be 'NSE_INDEX|Nifty 50'
+            
+            instrument_key = symbol
+            # Simple mapping for common indices
+            if symbol == 'NIFTY': instrument_key = 'NSE_INDEX|Nifty 50'
+            elif symbol == 'BANKNIFTY': instrument_key = 'NSE_INDEX|Nifty Bank'
+            
+            # Call API (using generic call if specific method not found in inspection)
+            # Based on docs: api_instance.get_put_call_option_chain_details(instrument_key, expiry_date)
+            
+            # We need to import the API class
+            from upstox_client.api.options_api import OptionsApi
+            options_api = OptionsApi(self.api_client)
+            
+            response = options_api.get_put_call_option_chain_details(
+                instrument_key=instrument_key,
+                expiry_date=expiry
+            )
+            
+            # Convert response to dict
+            if hasattr(response, 'to_dict'):
+                return response.to_dict()
+            return response
+            
+        except Exception as e:
+            logging.error(f"Error fetching Upstox option chain: {e}")
+            return {}
