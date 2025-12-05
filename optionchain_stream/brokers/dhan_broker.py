@@ -1,8 +1,7 @@
 import logging
 from typing import List, Dict, Any, Callable
 from datetime import datetime
-from dhanhq import dhanhq
-from dhanhq import DhanFeed
+from dhanhq import dhanhq, DhanFeed
 from optionchain_stream.broker_interface import Broker
 from optionchain_stream.models import Tick
 from optionchain_stream.instrument_master.dhan_provider import DhanInstrumentProvider
@@ -13,10 +12,13 @@ class DhanBroker(Broker):
         self.client_id = client_id
         self.access_token = access_token
         self.instrument_provider = DhanInstrumentProvider()
+        
         self.dhan = dhanhq(client_id, access_token)
+        
+        # DhanFeed for WebSocket (v2.0)
         self.feed = None
         self.callbacks = []
-        self.subscribed_tokens = []
+        self.subscribed_instruments = []  # List of (exchange_code: int, security_id: str)
 
     def authenticate(self):
         # Dhan auth is implicit in client init for SDK
@@ -26,42 +28,45 @@ class DhanBroker(Broker):
         return self.instrument_provider
 
     def subscribe(self, tokens: List[str], mode: str = "full"):
-        # Dhan requires (exchange_segment, security_id) tuples for subscription
-        # We need to look up the instrument to get the exchange segment
+        """
+        Subscribe to market data for given tokens.
         
+        Args:
+            tokens: List of security IDs (tokens)
+            mode: Subscription mode (not actively used in DhanFeed v2.0)
+        """
         instruments = []
         for token in tokens:
             inst = self.instrument_provider.get_instrument_by_token(token)
             if inst:
-                # Map exchange to Dhan segment code
-                # NSE_FO -> 2, NSE_EQ -> 1, etc. (Need to verify codes)
-                # Assuming standard codes or using SDK constants if available
-                # For now, let's assume we can derive it or use a mapping
-                
-                # Mapping (approximate, need verification):
-                # NSE_EQ: 1, NSE_FNO: 2, BSE_EQ: 3, BSE_FNO: 4, MCX: 5
-                
+                # Map exchange to Dhan exchange code (int)
                 exch_code = 0
-                if inst.exchange == 'NSE' or inst.exchange == 'NSE_EQ': exch_code = 1
-                elif inst.exchange == 'NSE_FO' or inst.exchange == 'NFO': exch_code = 2
-                elif inst.exchange == 'BSE': exch_code = 3
-                elif inst.exchange == 'BSE_FO': exch_code = 4
-                elif inst.exchange == 'MCX' or inst.exchange == 'MCX_FO': exch_code = 5
+                if inst.exchange in ['NSE', 'NSE_EQ']:
+                    exch_code = 0  # NSE
+                elif inst.exchange == 'NSE_FO':
+                    exch_code = 1  # NSE_FNO
+                elif inst.exchange in ['BSE', 'BSE_EQ']:
+                    exch_code = 3  # BSE
+                elif inst.exchange == 'BSE_FO':
+                    exch_code = 4  # BSE_FNO
+                elif inst.exchange == 'MCX':
+                    exch_code = 5  # MCX
                 
-                if exch_code > 0:
-                    instruments.append((exch_code, inst.token))
+                # DhanFeed expects (exchange_code: int, security_id: str)
+                instruments.append((exch_code, str(inst.token)))
         
         if instruments:
-            self.subscribed_tokens.extend(instruments)
-            if self.feed:
-                self.feed.subscribe_instruments(instruments)
+            self.subscribed_instruments.extend(instruments)
 
     def on_tick(self, callback: Callable[[List[Tick]], None]):
         self.callbacks.append(callback)
 
     def connect(self):
-        print("Connecting to Dhan WebSocket...")
-        self.feed = DhanFeed(self.client_id, self.access_token, instruments=self.subscribed_tokens)
+        """Connect to Dhan WebSocket using DhanFeed v2.0"""
+        print("Connecting to Dhan WebSocket (v2.0)...")
+        
+        # DhanFeed expects instruments as list of (exchange_code: int, security_id: str)
+        self.feed = DhanFeed(self.client_id, self.access_token, self.subscribed_instruments)
         self.feed.on_ticker = self._on_ticker
         self.feed.run_forever()
 
@@ -98,35 +103,31 @@ class DhanBroker(Broker):
             expiry: Expiry date in YYYY-MM-DD format.
         """
         try:
-            # Dhan option_chain API requires (exchange_segment, security_id, expiry)
-            # We need to map the symbol to security_id and exchange_segment
-            
-            # 1. Find underlying security_id
-            # This is tricky without a full lookup. 
-            # For common indices, we can hardcode or lookup in our provider if loaded.
-            
-            exch_seg = 'NSE_FNO' # Usually for options
-            security_id = '0'
+            # Dhan option_chain API requires (under_security_id, under_exchange_segment, expiry)
             
             # Simple mapping for common indices
+            # Based on Dhan documentation, NIFTY is 13, BANKNIFTY is 25
+            under_security_id = None
+            under_exchange_segment = "IDX_I"  # Index segment
+            
             if symbol == 'NIFTY': 
-                security_id = '13' # Nifty 50 Index Token (Need to verify)
-                exch_seg = 'NSE_FNO' # Or NSE_INDEX? Option chain is on FNO.
+                under_security_id = "13"  # Nifty 50 Index
             elif symbol == 'BANKNIFTY':
-                security_id = '25' # Bank Nifty Index Token
+                under_security_id = "25"  # Bank Nifty Index
             
             # If not found, try to find in provider
-            if security_id == '0':
+            if not under_security_id:
                 inst = self.instrument_provider.get_instrument_by_symbol(symbol)
                 if inst:
-                    security_id = inst.token
-                    # Map exchange to segment
-                    if inst.exchange == 'NSE_FO': exch_seg = 'NSE_FNO'
+                    under_security_id = inst.token
+                    # Determine segment from exchange
+                    if 'INDEX' in inst.exchange:
+                        under_exchange_segment = "IDX_I"
             
-            if security_id != '0':
+            if under_security_id:
                 response = self.dhan.option_chain(
-                    exchange_segment=exch_seg,
-                    security_id=security_id,
+                    under_security_id=under_security_id,
+                    under_exchange_segment=under_exchange_segment,
                     expiry=expiry
                 )
                 return response
@@ -136,4 +137,6 @@ class DhanBroker(Broker):
                 
         except Exception as e:
             logging.error(f"Error fetching Dhan option chain: {e}")
+            import traceback
+            traceback.print_exc()
             return {}
