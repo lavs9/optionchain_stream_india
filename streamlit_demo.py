@@ -34,9 +34,31 @@ from plotly.subplots import make_subplots
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-from optionchain_stream.brokers.dhan_broker import DhanBroker
-from optionchain_stream.brokers.upstox_broker import UpstoxBroker
-from optionchain_stream.brokers.fyers_broker import FyersBroker
+# Import brokers - make optional to handle deployment issues
+try:
+    from optionchain_stream.brokers.dhan_broker import DhanBroker
+    DHAN_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Dhan broker not available: {e}")
+    DhanBroker = None
+    DHAN_AVAILABLE = False
+
+try:
+    from optionchain_stream.brokers.upstox_broker import UpstoxBroker
+    UPSTOX_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Upstox broker not available: {e}")
+    UpstoxBroker = None
+    UPSTOX_AVAILABLE = False
+
+try:
+    from optionchain_stream.brokers.fyers_broker import FyersBroker
+    FYERS_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Fyers broker not available: {e}")
+    FyersBroker = None
+    FYERS_AVAILABLE = False
+
 from optionchain_stream.models import Tick
 
 # Configure logging
@@ -98,11 +120,17 @@ class StreamingDemo:
         """Initialize the selected broker"""
         try:
             if broker_name == "Dhan":
+                if not DHAN_AVAILABLE or DhanBroker is None:
+                    st.error("Dhan broker is not available. Check deployment logs.")
+                    return False
                 self.broker = DhanBroker(
                     client_id=credentials['client_id'],
                     access_token=credentials['access_token']
                 )
             elif broker_name == "Upstox":
+                if not UPSTOX_AVAILABLE or UpstoxBroker is None:
+                    st.error("Upstox broker is not available. Check deployment logs.")
+                    return False
                 self.broker = UpstoxBroker(
                     client_id=credentials['client_id'],
                     client_secret=credentials['client_secret'],
@@ -110,6 +138,9 @@ class StreamingDemo:
                     access_token=credentials['access_token']
                 )
             elif broker_name == "Fyers":
+                if not FYERS_AVAILABLE or FyersBroker is None:
+                    st.error("Fyers broker is not available. Check deployment logs.")
+                    return False
                 self.broker = FyersBroker(
                     client_id=credentials['client_id'],
                     access_token=credentials['access_token']
@@ -197,11 +228,23 @@ def render_sidebar() -> Dict[str, Any]:
     """Render sidebar configuration panel"""
     st.sidebar.title("⚙️ Configuration")
     
-    # Broker selection
+    # Broker selection - only show available brokers
     st.sidebar.subheader("Broker Settings")
+    available_brokers = []
+    if DHAN_AVAILABLE:
+        available_brokers.append("Dhan")
+    if UPSTOX_AVAILABLE:
+        available_brokers.append("Upstox")
+    if FYERS_AVAILABLE:
+        available_brokers.append("Fyers")
+    
+    if not available_brokers:
+        st.sidebar.error("⚠️ No brokers available. Check deployment logs.")
+        available_brokers = ["None"]
+    
     broker_name = st.sidebar.selectbox(
         "Select Broker",
-        ["Dhan", "Upstox", "Fyers"],
+        available_brokers,
         index=0
     )
     

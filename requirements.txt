@@ -8,5 +8,6 @@ kiteconnect
 upstox-python-sdk
 dhanhq
 fyers-apiv3
+setuptools
 streamlit>=1.28.0
 plotly>=5.17.0
