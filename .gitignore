@@ -61,3 +61,6 @@ htmlcov/
 *.csv
 *.db
 *.sqlite
+
+# Streamlit secrets (IMPORTANT!)
+.streamlit/secrets.toml

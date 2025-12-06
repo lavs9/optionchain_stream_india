@@ -111,7 +111,38 @@ broker.subscribe(tokens, mode="full")
 broker.connect()
 ```
 
+### Streamlit Web Demo 🎨
+
+**Try the interactive web interface!**
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Set credentials
+export DHAN_CLIENT_ID="your_client_id"
+export DHAN_ACCESS_TOKEN="your_access_token"
+
+# Run the demo
+streamlit run streamlit_demo.py
+```
+
+**Deploy to Streamlit Community Cloud:**
+1. Fork this repository
+2. Visit [share.streamlit.io](https://share.streamlit.io)
+3. Deploy from your GitHub repo
+4. Add credentials in Streamlit Cloud Secrets (see [deployment guide](docs/streamlit_demo.md#streamlit-cloud-deployment))
+
+Features:
+- 🔄 Multi-broker support (Dhan, Upstox, Fyers)
+- 📊 Real-time option chain display
+- 📈 Interactive visualizations (IV smile, volume, OI)
+- ⚡ Auto-refresh with configurable intervals
+
+[📖 Full Demo Documentation](docs/streamlit_demo.md)
+
 ### Option Chain Polling
+
 
 ```python
 # Fetch full option chain with Greeks
