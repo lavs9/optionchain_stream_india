@@ -58,3 +58,60 @@ class FyersBroker(Broker):
             oi=data.get('oi', 0),
             change=0.0
         )
+    
+    def fetch_option_chain(self, symbol: str, expiry: str) -> Dict[str, Any]:
+        """
+        Fetch option chain from instruments.
+        Note: Fyers doesn't have a native option chain API, 
+        so we build it from the instrument list.
+        """
+        try:
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            # Get all instruments
+            instruments = self.instrument_provider.fetch_instruments()
+            
+            # Filter for the specific symbol and expiry
+            option_instruments = []
+            for inst in instruments:
+                if symbol in inst.symbol and inst.instrument_type in ["CE", "PE"]:
+                    if inst.expiry:
+                        inst_expiry = inst.expiry.strftime("%Y-%m-%d")
+                        if inst_expiry == expiry:
+                            option_instruments.append(inst)
+            
+            if not option_instruments:
+                logger.warning(f"No option instruments found for {symbol} expiry {expiry}")
+                return {}
+            
+            # Build option chain data structure similar to other brokers
+            option_data = []
+            for inst in option_instruments:
+                option_data.append({
+                    'symbol': inst.symbol,
+                    'strike_price': inst.strike,
+                    'option_type': inst.instrument_type,
+                    'ltp': 0.0,  # Would need live quotes
+                    'oi': 0,
+                    'volume': 0,
+                    'token': inst.token,
+                    'expiry': expiry
+                })
+            
+            # Sort by strike price
+            option_data.sort(key=lambda x: x['strike_price'])
+            
+            return {
+                'data': option_data,
+                'spot_price': 0,  # Fyers doesn't provide this directly
+                'pcr': 0,  # Calculate if needed
+                'symbol': symbol,
+                'expiry': expiry
+            }
+            
+        except Exception as e:
+            logging.error(f"Error fetching Fyers option chain: {e}")
+            import traceback
+            traceback.print_exc()
+            return {}
