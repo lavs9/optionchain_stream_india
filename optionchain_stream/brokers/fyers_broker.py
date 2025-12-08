@@ -75,7 +75,6 @@ class FyersBroker(Broker):
             fyers = fyersModel.FyersModel(client_id=self.client_id, is_async=False, token=self.access_token, log_path="")
             
             # Map symbol to Fyers format
-            # NIFTY -> NSE:NIFTY50-INDEX, BANKNIFTY -> NSE:NIFTYBANK-INDEX
             if symbol == "NIFTY":
                 fyers_symbol = "NSE:NIFTY50-INDEX"
             elif symbol == "BANKNIFTY":
@@ -83,16 +82,15 @@ class FyersBroker(Broker):
             else:
                 fyers_symbol = f"NSE:{symbol}-INDEX"
             
-            # Convert expiry to timestamp
-            # Fyers expects Unix timestamp in seconds
-            try:
-                expiry_dt = datetime.strptime(expiry, "%Y-%m-%d")
-                # Set to end of day (3:30 PM IST for Indian market)
-                expiry_dt = expiry_dt.replace(hour=15, minute=30)
-                expiry_timestamp = str(int(expiry_dt.timestamp()))
-            except Exception as e:
-                logger.warning(f"Error parsing expiry date: {e}")
-                expiry_timestamp = ""
+            # Convert expiry to timestamp if provided
+            expiry_timestamp = ""
+            if expiry:
+                try:
+                    expiry_dt = datetime.strptime(expiry, "%Y-%m-%d")
+                    expiry_dt = expiry_dt.replace(hour=15, minute=30)
+                    expiry_timestamp = str(int(expiry_dt.timestamp()))
+                except Exception as e:
+                    logger.warning(f"Error parsing expiry date: {e}")
             
             # Prepare request data
             data = {
@@ -111,70 +109,49 @@ class FyersBroker(Broker):
                 return {}
             
             # Parse response
-            option_chain_data = response.get('data', {})
-            if not option_chain_data:
-                logger.warning("No option chain data in response")
+            response_data = response.get('data', {})
+            if not response_data:
+                logger.warning("No data in response")
                 return {}
             
-            # Get options data
-            options_data = option_chain_data.get('optionsChain', [])
-            spot_price = option_chain_data.get('ltp', 0)
+            # Get options chain array
+            options_chain = response_data.get('optionsChain', [])
+            
+            # First item is the underlying index itself (strike_price: -1), skip it
+            spot_price = 0
+            if options_chain and options_chain[0].get('strike_price') == -1:
+                spot_price = options_chain[0].get('ltp', 0)
+                options_chain = options_chain[1:]  # Skip the index item
             
             # Build standardized option chain format
             option_data = []
-            for option_item in options_data:
-                # Each item has 'call' and 'put' data
+            for option_item in options_chain:
                 strike = option_item.get('strike_price', 0)
+                option_type = option_item.get('option_type', '')
                 
-                call_data = option_item.get('call', {})
-                put_data = option_item.get('put', {})
+                # Skip if not a valid option
+                if not option_type or option_type not in ['CE', 'PE']:
+                    continue
                 
-                # Add call option
-                if call_data:
-                    option_data.append({
-                        'symbol': call_data.get('symbol', ''),
-                        'strike_price': strike,
-                        'option_type': 'CE',
-                        'ltp': call_data.get('ltp', 0.0),
-                        'oi': call_data.get('oi', 0),
-                        'volume': call_data.get('volume', 0),
-                        'bid': call_data.get('bid', 0.0),
-                        'ask': call_data.get('ask', 0.0),
-                        'option_greeks': {
-                            'iv': call_data.get('iv', 0),
-                            'delta': call_data.get('delta', 0),
-                            'gamma': call_data.get('gamma', 0),
-                            'theta': call_data.get('theta', 0),
-                            'vega': call_data.get('vega', 0)
-                        } if 'iv' in call_data else {},
-                        'expiry': expiry
-                    })
-                
-                # Add put option
-                if put_data:
-                    option_data.append({
-                        'symbol': put_data.get('symbol', ''),
-                        'strike_price': strike,
-                        'option_type': 'PE',
-                        'ltp': put_data.get('ltp', 0.0),
-                        'oi': put_data.get('oi', 0),
-                        'volume': put_data.get('volume', 0),
-                        'bid': put_data.get('bid', 0.0),
-                        'ask': put_data.get('ask', 0.0),
-                        'option_greeks': {
-                            'iv': put_data.get('iv', 0),
-                            'delta': put_data.get('delta', 0),
-                            'gamma': put_data.get('gamma', 0),
-                            'theta': put_data.get('theta', 0),
-                            'vega': put_data.get('vega', 0)
-                        } if 'iv' in put_data else {},
-                        'expiry': expiry
-                    })
+                option_data.append({
+                    'symbol': option_item.get('symbol', ''),
+                    'strike_price': strike,
+                    'option_type': option_type,
+                    'ltp': option_item.get('ltp', 0.0),
+                    'oi': option_item.get('oi', 0),
+                    'volume': option_item.get('volume', 0),
+                    'bid': option_item.get('bid', 0.0),
+                    'ask': option_item.get('ask', 0.0),
+                    'prev_oi': option_item.get('prev_oi', 0),
+                    'oi_change': option_item.get('oich', 0),
+                    'ltp_change': option_item.get('ltpch', 0),
+                    'expiry': expiry
+                })
             
             # Sort by strike price
             option_data.sort(key=lambda x: x['strike_price'])
             
-            # Calculate PCR if possible
+            # Calculate PCR
             total_call_oi = sum(opt['oi'] for opt in option_data if opt['option_type'] == 'CE')
             total_put_oi = sum(opt['oi'] for opt in option_data if opt['option_type'] == 'PE')
             pcr = total_put_oi / total_call_oi if total_call_oi > 0 else 0
