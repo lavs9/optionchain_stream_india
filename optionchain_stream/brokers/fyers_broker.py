@@ -106,8 +106,20 @@ class FyersBroker(Broker):
                     quotes_response = fyers.quotes({"symbols": symbols_str})
                     
                     if quotes_response and quotes_response.get('s') == 'ok':
-                        for quote_key, quote_val in quotes_response.get('d', {}).items():
-                            quotes_data[quote_key] = quote_val
+                        # Response 'd' can be either a dict or a list
+                        response_data = quotes_response.get('d', {})
+                        
+                        if isinstance(response_data, dict):
+                            # Dictionary format: {symbol: quote_data}
+                            for quote_key, quote_val in response_data.items():
+                                quotes_data[quote_key] = quote_val
+                        elif isinstance(response_data, list):
+                            # List format: [{symbol: ..., data: ...}, ...]
+                            for quote_item in response_data:
+                                if isinstance(quote_item, dict):
+                                    symbol = quote_item.get('n', '')
+                                    if symbol:
+                                        quotes_data[symbol] = quote_item
                     
             except Exception as e:
                 logger.warning(f"Error fetching live quotes from Fyers: {e}")
