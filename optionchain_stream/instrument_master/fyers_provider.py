@@ -1,13 +1,18 @@
 import requests
 import pandas as pd
 import io
-from typing import List, Dict
-from datetime import datetime
+from typing import List, Dict, Optional
+from datetime import datetime, timedelta
 from optionchain_stream.models import Instrument
 from optionchain_stream.instrument_master.instrument_provider import InstrumentProvider
+from optionchain_stream.instrument_cache import InstrumentCache
 
 class FyersInstrumentProvider(InstrumentProvider):
+    # Class-level cache shared across instances
+    _cache = InstrumentCache(cache_ttl_seconds=3600)
+    
     def __init__(self):
+        """Initialize Fyers instrument provider with Redis caching"""
         self.urls = {
             'NSE_FO': "https://public.fyers.in/sym_details/NSE_FO.csv",
             'NSE_EQ': "https://public.fyers.in/sym_details/NSE_CM.csv",
@@ -15,13 +20,27 @@ class FyersInstrumentProvider(InstrumentProvider):
         }
         self.instruments_map: Dict[str, Instrument] = {}
         self.symbol_map: Dict[str, Instrument] = {}
+        self.cache_key = "fyers_instruments"
 
     def fetch_instruments(self, exchange: str = 'NSE') -> List[Instrument]:
-        print("Fetching Fyers instruments...")
+        """
+        Fetch instruments with Redis caching support.
+        Returns cached data if available and not expired.
+        """
+        # Try to get from cache first
+        cached = self._cache.get(self.cache_key)
+        if cached:
+            # Rebuild maps from cached data
+            self.instruments_map = {inst.token: inst for inst in cached}
+            self.symbol_map = {inst.symbol: inst for inst in cached}
+            return cached
+        
+        # Cache miss - fetch from CSV files
+        print("📥 Fetching Fyers instruments from CSV files...")
         instruments = []
         
         for exch_key, url in self.urls.items():
-            print(f"Fetching from {url}...")
+            print(f"  Downloading {exch_key}...")
             try:
                 # Fyers CSV has no header
                 df = pd.read_csv(url, header=None)
@@ -63,12 +82,27 @@ class FyersInstrumentProvider(InstrumentProvider):
                     self.symbol_map[inst.symbol] = inst
                     
             except Exception as e:
-                print(f"Error fetching/parsing {url}: {e}")
-            
+                print(f"❌ Error fetching/parsing {url}: {e}")
+        
+        # Store in cache
+        if instruments:
+            self._cache.set(self.cache_key, instruments)
+        
         return instruments
+    
+    @classmethod
+    def clear_cache(cls):
+        """Clear the instrument cache to force re-fetch"""
+        cls._cache.clear("fyers_instruments")
 
     def get_instrument_by_token(self, token: int) -> Instrument:
+        # Ensure instruments are loaded
+        if not self.instruments_map:
+            self.fetch_instruments()
         return self.instruments_map.get(token)
 
     def get_instrument_by_symbol(self, symbol: str) -> Instrument:
+        # Ensure instruments are loaded
+        if not self.symbol_map:
+            self.fetch_instruments()
         return self.symbol_map.get(symbol)

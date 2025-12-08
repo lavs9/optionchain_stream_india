@@ -5,31 +5,41 @@ from typing import List, Dict
 from datetime import datetime
 from optionchain_stream.models import Instrument
 from optionchain_stream.instrument_master.instrument_provider import InstrumentProvider
+from optionchain_stream.instrument_cache import InstrumentCache
 
 class DhanInstrumentProvider(InstrumentProvider):
+    # Class-level cache shared across instances
+    _cache = InstrumentCache(cache_ttl_seconds=3600)
+    
     def __init__(self):
         self.url = "https://images.dhan.co/api-data/api-scrip-master.csv"
         self.instruments_map: Dict[str, Instrument] = {}
         self.symbol_map: Dict[str, Instrument] = {}
+        self.cache_key = "dhan_instruments"
 
     def fetch_instruments(self, exchange: str = 'NSE') -> List[Instrument]:
-        print("Fetching Dhan instruments...")
+        """Fetch instruments with Redis caching support"""
+        # Try cache first
+        cached = self._cache.get(self.cache_key)
+        if cached:
+            self.instruments_map = {inst.token: inst for inst in cached}
+            self.symbol_map = {inst.symbol: inst for inst in cached}
+            return cached
+        
+        # Cache miss - fetch from CSV
+        print("📥 Fetching Dhan instruments from CSV...")
         try:
             df = pd.read_csv(self.url)
         except Exception as e:
-            print(f"Error fetching Dhan instruments: {e}")
+            print(f"❌ Error fetching Dhan instruments: {e}")
             return []
             
         instruments = []
         for _, row in df.iterrows():
-            # Filter by exchange if needed, but Dhan CSV has all.
-            # We can filter later or store all.
-            
             # Parse expiry
             expiry = None
             if pd.notna(row['SEM_EXPIRY_DATE']):
                 try:
-                    # Format likely '2023-10-26 14:30:00' or similar
                     expiry = pd.to_datetime(row['SEM_EXPIRY_DATE']).to_pydatetime()
                 except:
                     pass
@@ -50,14 +60,14 @@ class DhanInstrumentProvider(InstrumentProvider):
                 elif segment == 'C': exchange = 'BSE_CD'
                 elif segment == 'I': exchange = 'BSE_INDEX'
             elif exch_id == 'MCX':
-                exchange = 'MCX' # Usually MCX is derivatives
+                exchange = 'MCX'
 
             inst = Instrument(
                 exchange=exchange,
                 token=str(row['SEM_SMST_SECURITY_ID']),
                 symbol=str(row['SEM_TRADING_SYMBOL']),
-                name=str(row['SEM_INSTRUMENT_NAME']), # or similar
-                expiry=None, # Need to parse date string
+                name=str(row['SEM_INSTRUMENT_NAME']),
+                expiry=None,
                 strike=float(row['SEM_STRIKE_PRICE']),
                 lot_size=int(row['SEM_LOT_UNITS']),
                 instrument_type=row['SEM_INSTRUMENT_NAME'],
@@ -67,11 +77,24 @@ class DhanInstrumentProvider(InstrumentProvider):
             instruments.append(inst)
             self.instruments_map[inst.token] = inst
             self.symbol_map[inst.symbol] = inst
+        
+        # Store in cache
+        if instruments:
+            self._cache.set(self.cache_key, instruments)
             
         return instruments
+    
+    @classmethod
+    def clear_cache(cls):
+        """Clear the instrument cache"""
+        cls._cache.clear("dhan_instruments")
 
     def get_instrument_by_token(self, token: int) -> Instrument:
+        if not self.instruments_map:
+            self.fetch_instruments()
         return self.instruments_map.get(token)
 
     def get_instrument_by_symbol(self, symbol: str) -> Instrument:
+        if not self.symbol_map:
+            self.fetch_instruments()
         return self.symbol_map.get(symbol)
