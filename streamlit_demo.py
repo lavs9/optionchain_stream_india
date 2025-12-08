@@ -455,7 +455,7 @@ def render_option_chain_table(df: pd.DataFrame, spot_price: float = 0):
     # Display
     st.dataframe(
         formatted_df.style.apply(highlight_atm, axis=1),
-        use_container_width=True,
+        width='stretch',
         height=600
     )
 
@@ -541,7 +541,7 @@ def render_visualizations(df: pd.DataFrame):
         title_text="Option Chain Analytics"
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 def main():
@@ -573,7 +573,7 @@ def main():
         # Connect button - always show if not connected
         if not st.session_state.connected:
             if config['has_credentials']:
-                if st.button("🔌 Connect", type="primary", use_container_width=True):
+                if st.button("🔌 Connect", type="primary", width='stretch'):
                     with st.spinner("Testing connection..."):
                         success = st.session_state.demo.initialize_broker(
                             config['broker_name'],
@@ -588,11 +588,11 @@ def main():
                         else:
                             st.error("❌ Connection failed. Check your credentials.")
             else:
-                st.button("🔌 Connect", disabled=True, use_container_width=True)
+                st.button("🔌 Connect", disabled=True, width='stretch')
                 st.caption("Enter credentials first")
         else:
             # Show disconnect button when connected
-            if st.button("🔌 Disconnect", type="secondary", use_container_width=True):
+            if st.button("🔌 Disconnect", type="secondary", width='stretch'):
                 st.session_state.connected = False
                 st.session_state.streaming = False
                 st.session_state.started = False
@@ -602,15 +602,15 @@ def main():
     with col2:
         # Stream button - only show when connected
         if st.session_state.connected and not st.session_state.streaming:
-            if st.button("📊 Stream Option Chain", type="primary", use_container_width=True):
+            if st.button("📊 Stream Option Chain", type="primary", width='stretch'):
                 st.session_state.streaming = True
                 st.rerun()
         elif st.session_state.streaming:
-            if st.button("⏸️ Stop Streaming", use_container_width=True):
+            if st.button("⏸️ Stop Streaming", width='stretch'):
                 st.session_state.streaming = False
                 st.rerun()
         else:
-            st.button("📊 Stream Option Chain", disabled=True, use_container_width=True)
+            st.button("📊 Stream Option Chain", disabled=True, width='stretch')
             if not st.session_state.connected:
                 st.caption("Connect first")
     
@@ -697,28 +697,28 @@ def main():
                     with met_col2:
                         pcr = option_chain.get('pcr', 0)
                         st.metric("PCR", f"{pcr:.2f}" if pcr else "-")
+                    
+                    with met_col3:
+                        data_count = len(option_chain.get('data', []))
+                        st.metric("Contracts", data_count)
+                    
+                    with met_col4:
+                        st.metric("Mode", "📊 Polling")
+                    
+                    # Convert to DataFrame and display
+                    df = format_option_chain_table(option_chain)
+                    
+                    if not df.empty:
+                        # Tabs for table and charts
+                        tab1, tab2 = st.tabs(["📋 Option Chain", "📈 Analytics"])
                         
-                        with met_col3:
-                            data_count = len(option_chain.get('data', []))
-                            st.metric("Contracts", data_count)
+                        with tab1:
+                            render_option_chain_table(df, st.session_state.demo.spot_price)
                         
-                        with met_col4:
-                            st.metric("Mode", "📊 Polling")
-                        
-                        # Convert to DataFrame and display
-                        df = format_option_chain_table(option_chain)
-                        
-                        if not df.empty:
-                            # Tabs for table and charts
-                            tab1, tab2 = st.tabs(["📋 Option Chain", "📈 Analytics"])
-                            
-                            with tab1:
-                                render_option_chain_table(df, st.session_state.demo.spot_price)
-                            
-                            with tab2:
-                                render_visualizations(df)
-                        else:
-                            st.warning("No option chain data available")
+                        with tab2:
+                            render_visualizations(df)
+                    else:
+                        st.warning("No option chain data available")
                 else:
                     st.error("Failed to fetch option chain data")
         elif st.session_state.connected and not st.session_state.streaming:
