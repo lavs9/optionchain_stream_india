@@ -61,111 +61,130 @@ class FyersBroker(Broker):
     
     def fetch_option_chain(self, symbol: str, expiry: str) -> Dict[str, Any]:
         """
-        Fetch option chain from instruments with live quotes.
-        Note: Fyers doesn't have a native option chain API, 
-        so we build it from the instrument list and fetch live quotes.
+        Fetch option chain using Fyers native optionchain API.
+        This provides complete option chain data with live prices.
         """
         try:
             import logging
             from fyers_apiv3 import fyersModel
+            from datetime import datetime
             
             logger = logging.getLogger(__name__)
             
-            # Get all instruments
-            instruments = self.instrument_provider.fetch_instruments()
+            # Create Fyers model
+            fyers = fyersModel.FyersModel(client_id=self.client_id, is_async=False, token=self.access_token, log_path="")
             
-            # Filter for the specific symbol and expiry
-            option_instruments = []
-            for inst in instruments:
-                if symbol in inst.symbol and inst.instrument_type in ["CE", "PE"]:
-                    if inst.expiry:
-                        inst_expiry = inst.expiry.strftime("%Y-%m-%d")
-                        if inst_expiry == expiry:
-                            option_instruments.append(inst)
+            # Map symbol to Fyers format
+            # NIFTY -> NSE:NIFTY50-INDEX, BANKNIFTY -> NSE:NIFTYBANK-INDEX
+            if symbol == "NIFTY":
+                fyers_symbol = "NSE:NIFTY50-INDEX"
+            elif symbol == "BANKNIFTY":
+                fyers_symbol = "NSE:NIFTYBANK-INDEX"
+            else:
+                fyers_symbol = f"NSE:{symbol}-INDEX"
             
-            if not option_instruments:
-                logger.warning(f"No option instruments found for {symbol} expiry {expiry}")
+            # Convert expiry to timestamp
+            # Fyers expects Unix timestamp in seconds
+            try:
+                expiry_dt = datetime.strptime(expiry, "%Y-%m-%d")
+                # Set to end of day (3:30 PM IST for Indian market)
+                expiry_dt = expiry_dt.replace(hour=15, minute=30)
+                expiry_timestamp = str(int(expiry_dt.timestamp()))
+            except Exception as e:
+                logger.warning(f"Error parsing expiry date: {e}")
+                expiry_timestamp = ""
+            
+            # Prepare request data
+            data = {
+                "symbol": fyers_symbol,
+                "strikecount": 25,  # Get 25 strikes on each side
+                "timestamp": expiry_timestamp
+            }
+            
+            logger.info(f"Fetching Fyers option chain with data: {data}")
+            
+            # Call Fyers option chain API
+            response = fyers.optionchain(data=data)
+            
+            if not response or response.get('s') != 'ok':
+                logger.error(f"Fyers option chain API error: {response}")
                 return {}
             
-            # Build list of symbols for quote fetch (limit to reasonable number)
-            # Fyers allows max 50 symbols per quote request
-            symbols_to_fetch = [inst.symbol for inst in option_instruments[:100]]  # Limit to 100 for performance
+            # Parse response
+            option_chain_data = response.get('data', {})
+            if not option_chain_data:
+                logger.warning("No option chain data in response")
+                return {}
             
-            # Fetch live quotes from Fyers
-            quotes_data = {}
-            try:
-                # Create Fyers model for quotes
-                fyers = fyersModel.FyersModel(client_id=self.client_id, is_async=False, token=self.access_token, log_path="")
-                
-                # Fetch quotes in batches of 50
-                batch_size = 50
-                for i in range(0, len(symbols_to_fetch), batch_size):
-                    batch = symbols_to_fetch[i:i+batch_size]
-                    symbols_str = ",".join(batch)
-                    
-                    quotes_response = fyers.quotes({"symbols": symbols_str})
-                    
-                    if quotes_response and quotes_response.get('s') == 'ok':
-                        # Response 'd' can be either a dict or a list
-                        response_data = quotes_response.get('d', {})
-                        
-                        if isinstance(response_data, dict):
-                            # Dictionary format: {symbol: quote_data}
-                            for quote_key, quote_val in response_data.items():
-                                quotes_data[quote_key] = quote_val
-                        elif isinstance(response_data, list):
-                            # List format: [{symbol: ..., data: ...}, ...]
-                            for quote_item in response_data:
-                                if isinstance(quote_item, dict):
-                                    symbol = quote_item.get('n', '')
-                                    if symbol:
-                                        quotes_data[symbol] = quote_item
-                    
-            except Exception as e:
-                logger.warning(f"Error fetching live quotes from Fyers: {e}")
-                # Continue with zero prices if quote fetch fails
+            # Get options data
+            options_data = option_chain_data.get('optionsChain', [])
+            spot_price = option_chain_data.get('ltp', 0)
             
-            # Build option chain data structure with live prices
+            # Build standardized option chain format
             option_data = []
-            for inst in option_instruments[:100]:  # Match the limit above
-                symbol_key = inst.symbol
-                quote = quotes_data.get(symbol_key, {})
+            for option_item in options_data:
+                # Each item has 'call' and 'put' data
+                strike = option_item.get('strike_price', 0)
                 
-                option_data.append({
-                    'symbol': inst.symbol,
-                    'strike_price': inst.strike,
-                    'option_type': inst.instrument_type,
-                    'ltp': quote.get('v', {}).get('lp', 0.0) if quote else 0.0,  # Last price
-                    'oi': quote.get('v', {}).get('oi', 0) if quote else 0,  # Open interest
-                    'volume': quote.get('v', {}).get('volume', 0) if quote else 0,  # Volume
-                    'token': inst.token,
-                    'expiry': expiry
-                })
+                call_data = option_item.get('call', {})
+                put_data = option_item.get('put', {})
+                
+                # Add call option
+                if call_data:
+                    option_data.append({
+                        'symbol': call_data.get('symbol', ''),
+                        'strike_price': strike,
+                        'option_type': 'CE',
+                        'ltp': call_data.get('ltp', 0.0),
+                        'oi': call_data.get('oi', 0),
+                        'volume': call_data.get('volume', 0),
+                        'bid': call_data.get('bid', 0.0),
+                        'ask': call_data.get('ask', 0.0),
+                        'option_greeks': {
+                            'iv': call_data.get('iv', 0),
+                            'delta': call_data.get('delta', 0),
+                            'gamma': call_data.get('gamma', 0),
+                            'theta': call_data.get('theta', 0),
+                            'vega': call_data.get('vega', 0)
+                        } if 'iv' in call_data else {},
+                        'expiry': expiry
+                    })
+                
+                # Add put option
+                if put_data:
+                    option_data.append({
+                        'symbol': put_data.get('symbol', ''),
+                        'strike_price': strike,
+                        'option_type': 'PE',
+                        'ltp': put_data.get('ltp', 0.0),
+                        'oi': put_data.get('oi', 0),
+                        'volume': put_data.get('volume', 0),
+                        'bid': put_data.get('bid', 0.0),
+                        'ask': put_data.get('ask', 0.0),
+                        'option_greeks': {
+                            'iv': put_data.get('iv', 0),
+                            'delta': put_data.get('delta', 0),
+                            'gamma': put_data.get('gamma', 0),
+                            'theta': put_data.get('theta', 0),
+                            'vega': put_data.get('vega', 0)
+                        } if 'iv' in put_data else {},
+                        'expiry': expiry
+                    })
             
             # Sort by strike price
             option_data.sort(key=lambda x: x['strike_price'])
             
-            # Try to get spot price from underlying index
-            spot_price = 0
-            try:
-                if symbol == "NIFTY":
-                    spot_symbol = "NSE:NIFTY50-INDEX"
-                elif symbol == "BANKNIFTY":
-                    spot_symbol = "NSE:NIFTYBANK-INDEX"
-                else:
-                    spot_symbol = f"NSE:{symbol}-INDEX"
-                
-                spot_response = fyers.quotes({"symbols": spot_symbol})
-                if spot_response and spot_response.get('s') == 'ok':
-                    spot_data = spot_response.get('d', {}).get(spot_symbol, {})
-                    spot_price = spot_data.get('v', {}).get('lp', 0)
-            except:
-                pass
+            # Calculate PCR if possible
+            total_call_oi = sum(opt['oi'] for opt in option_data if opt['option_type'] == 'CE')
+            total_put_oi = sum(opt['oi'] for opt in option_data if opt['option_type'] == 'PE')
+            pcr = total_put_oi / total_call_oi if total_call_oi > 0 else 0
+            
+            logger.info(f"Fyers option chain: {len(option_data)} contracts, spot: {spot_price}, PCR: {pcr:.2f}")
             
             return {
                 'data': option_data,
                 'spot_price': spot_price,
-                'pcr': 0,  # Calculate if needed
+                'pcr': pcr,
                 'symbol': symbol,
                 'expiry': expiry
             }
