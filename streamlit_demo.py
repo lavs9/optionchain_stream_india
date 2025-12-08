@@ -402,12 +402,18 @@ def format_option_chain_table(option_chain_data: Dict[str, Any]) -> pd.DataFrame
         
         strikes[strike][option_type] = {
             'ltp': item.get('ltp', 0),
+            'ltpch': item.get('ltpch', 0),
+            'ltpchp': item.get('ltpchp', 0),
+            'bid': item.get('bid', 0),
+            'ask': item.get('ask', 0),
             'oi': item.get('oi', 0),
+            'oich': item.get('oich', 0),
+            'oichp': item.get('oichp', 0),
             'volume': item.get('volume', 0),
             'iv': item.get('option_greeks', {}).get('iv', 0) if 'option_greeks' in item else 0,
         }
     
-    # Convert to DataFrame
+    # Convert to DataFrame with all columns
     rows = []
     for strike, data in sorted(strikes.items()):
         ce = data.get('CE', {})
@@ -415,14 +421,24 @@ def format_option_chain_table(option_chain_data: Dict[str, Any]) -> pd.DataFrame
         
         rows.append({
             'Strike': strike,
-            'CE_LTP': ce.get('ltp', 0),
+            # Call option columns
+            'CE_OI_Chg%': ce.get('oichp', 0),
             'CE_OI': ce.get('oi', 0),
             'CE_Vol': ce.get('volume', 0),
+            'CE_Bid': ce.get('bid', 0),
+            'CE_Ask': ce.get('ask', 0),
+            'CE_LTP': ce.get('ltp', 0),
+            'CE_Chg%': ce.get('ltpchp', 0),
             'CE_IV': ce.get('iv', 0),
+            # Put option columns
             'PE_IV': pe.get('iv', 0),
+            'PE_Chg%': pe.get('ltpchp', 0),
+            'PE_LTP': pe.get('ltp', 0),
+            'PE_Bid': pe.get('bid', 0),
+            'PE_Ask': pe.get('ask', 0),
             'PE_Vol': pe.get('volume', 0),
             'PE_OI': pe.get('oi', 0),
-            'PE_LTP': pe.get('ltp', 0),
+            'PE_OI_Chg%': pe.get('oichp', 0),
         })
     
     return pd.DataFrame(rows)
@@ -445,12 +461,28 @@ def render_option_chain_table(df: pd.DataFrame, spot_price: float = 0):
             return ['background-color: #ffffcc'] * len(row)
         return [''] * len(row)
     
-    # Format numbers
+    # Format numbers with proper precision
     formatted_df = df.copy()
-    formatted_df['CE_LTP'] = formatted_df['CE_LTP'].apply(lambda x: f"{x:.2f}")
-    formatted_df['PE_LTP'] = formatted_df['PE_LTP'].apply(lambda x: f"{x:.2f}")
-    formatted_df['CE_IV'] = formatted_df['CE_IV'].apply(lambda x: f"{x:.2f}%" if x > 0 else "-")
-    formatted_df['PE_IV'] = formatted_df['PE_IV'].apply(lambda x: f"{x:.2f}%" if x > 0 else "-")
+    
+    # Format prices (2 decimals)
+    price_columns = ['CE_LTP', 'CE_Bid', 'CE_Ask', 'PE_LTP', 'PE_Bid', 'PE_Ask']
+    for col in price_columns:
+        if col in formatted_df.columns:
+            formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:.2f}")
+    
+    # Format percentages (2 decimals with % sign)
+    pct_columns = ['CE_Chg%', 'CE_OI_Chg%', 'PE_Chg%', 'PE_OI_Chg%']
+    for col in pct_columns:
+        if col in formatted_df.columns:
+            formatted_df[col] = formatted_df[col].apply(
+                lambda x: f"{x:+.2f}%" if x != 0 else "0.00%"
+            )
+    
+    # Format IV (if exists)
+    if 'CE_IV' in formatted_df.columns:
+        formatted_df['CE_IV'] = formatted_df['CE_IV'].apply(lambda x: f"{x:.2f}%" if x > 0 else "-")
+    if 'PE_IV' in formatted_df.columns:
+        formatted_df['PE_IV'] = formatted_df['PE_IV'].apply(lambda x: f"{x:.2f}%" if x > 0 else "-")
     
     # Display
     st.dataframe(

@@ -137,14 +137,28 @@ class FyersBroker(Broker):
                     'symbol': option_item.get('symbol', ''),
                     'strike_price': strike,
                     'option_type': option_type,
+                    # Price data
                     'ltp': option_item.get('ltp', 0.0),
-                    'oi': option_item.get('oi', 0),
-                    'volume': option_item.get('volume', 0),
+                    'ltpch': option_item.get('ltpch', 0.0),  # LTP change
+                    'ltpchp': option_item.get('ltpchp', 0.0),  # LTP change %
                     'bid': option_item.get('bid', 0.0),
                     'ask': option_item.get('ask', 0.0),
+                    # Open Interest data
+                    'oi': option_item.get('oi', 0),
                     'prev_oi': option_item.get('prev_oi', 0),
-                    'oi_change': option_item.get('oich', 0),
-                    'ltp_change': option_item.get('ltpch', 0),
+                    'oich': option_item.get('oich', 0),  # OI change
+                    'oichp': option_item.get('oichp', 0.0),  # OI change %
+                    # Volume
+                    'volume': option_item.get('volume', 0),
+                    # Future price data (if available)
+                    'fp': option_item.get('fp', 0.0),  # Future price
+                    'fpch': option_item.get('fpch', 0.0),  # Future price change
+                    'fpchp': option_item.get('fpchp', 0.0),  # Future price change %
+                    # Metadata
+                    'fytoken': option_item.get('fyToken', ''),
+                    'description': option_item.get('description', ''),
+                    'ex_symbol': option_item.get('ex_symbol', ''),
+                    'exchange': option_item.get('exchange', ''),
                     'expiry': expiry
                 })
             
