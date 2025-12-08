@@ -95,7 +95,7 @@ class FyersBroker(Broker):
             # Prepare request data
             data = {
                 "symbol": fyers_symbol,
-                "strikecount": 25,  # Get 25 strikes on each side
+                "strikecount": 50,  # Get 50 strikes on each side
                 "timestamp": expiry_timestamp
             }
             
