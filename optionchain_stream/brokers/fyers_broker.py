@@ -61,12 +61,14 @@ class FyersBroker(Broker):
     
     def fetch_option_chain(self, symbol: str, expiry: str) -> Dict[str, Any]:
         """
-        Fetch option chain from instruments.
+        Fetch option chain from instruments with live quotes.
         Note: Fyers doesn't have a native option chain API, 
-        so we build it from the instrument list.
+        so we build it from the instrument list and fetch live quotes.
         """
         try:
             import logging
+            from fyers_apiv3 import fyersModel
+            
             logger = logging.getLogger(__name__)
             
             # Get all instruments
@@ -85,16 +87,45 @@ class FyersBroker(Broker):
                 logger.warning(f"No option instruments found for {symbol} expiry {expiry}")
                 return {}
             
-            # Build option chain data structure similar to other brokers
+            # Build list of symbols for quote fetch (limit to reasonable number)
+            # Fyers allows max 50 symbols per quote request
+            symbols_to_fetch = [inst.symbol for inst in option_instruments[:100]]  # Limit to 100 for performance
+            
+            # Fetch live quotes from Fyers
+            quotes_data = {}
+            try:
+                # Create Fyers model for quotes
+                fyers = fyersModel.FyersModel(client_id=self.client_id, is_async=False, token=self.access_token, log_path="")
+                
+                # Fetch quotes in batches of 50
+                batch_size = 50
+                for i in range(0, len(symbols_to_fetch), batch_size):
+                    batch = symbols_to_fetch[i:i+batch_size]
+                    symbols_str = ",".join(batch)
+                    
+                    quotes_response = fyers.quotes({"symbols": symbols_str})
+                    
+                    if quotes_response and quotes_response.get('s') == 'ok':
+                        for quote_key, quote_val in quotes_response.get('d', {}).items():
+                            quotes_data[quote_key] = quote_val
+                    
+            except Exception as e:
+                logger.warning(f"Error fetching live quotes from Fyers: {e}")
+                # Continue with zero prices if quote fetch fails
+            
+            # Build option chain data structure with live prices
             option_data = []
-            for inst in option_instruments:
+            for inst in option_instruments[:100]:  # Match the limit above
+                symbol_key = inst.symbol
+                quote = quotes_data.get(symbol_key, {})
+                
                 option_data.append({
                     'symbol': inst.symbol,
                     'strike_price': inst.strike,
                     'option_type': inst.instrument_type,
-                    'ltp': 0.0,  # Would need live quotes
-                    'oi': 0,
-                    'volume': 0,
+                    'ltp': quote.get('v', {}).get('lp', 0.0) if quote else 0.0,  # Last price
+                    'oi': quote.get('v', {}).get('oi', 0) if quote else 0,  # Open interest
+                    'volume': quote.get('v', {}).get('volume', 0) if quote else 0,  # Volume
                     'token': inst.token,
                     'expiry': expiry
                 })
@@ -102,9 +133,26 @@ class FyersBroker(Broker):
             # Sort by strike price
             option_data.sort(key=lambda x: x['strike_price'])
             
+            # Try to get spot price from underlying index
+            spot_price = 0
+            try:
+                if symbol == "NIFTY":
+                    spot_symbol = "NSE:NIFTY50-INDEX"
+                elif symbol == "BANKNIFTY":
+                    spot_symbol = "NSE:NIFTYBANK-INDEX"
+                else:
+                    spot_symbol = f"NSE:{symbol}-INDEX"
+                
+                spot_response = fyers.quotes({"symbols": spot_symbol})
+                if spot_response and spot_response.get('s') == 'ok':
+                    spot_data = spot_response.get('d', {}).get(spot_symbol, {})
+                    spot_price = spot_data.get('v', {}).get('lp', 0)
+            except:
+                pass
+            
             return {
                 'data': option_data,
-                'spot_price': 0,  # Fyers doesn't provide this directly
+                'spot_price': spot_price,
                 'pcr': 0,  # Calculate if needed
                 'symbol': symbol,
                 'expiry': expiry
