@@ -7,6 +7,23 @@
 
 > **Credits**: Enhanced fork of [optionchainstream](https://github.com/ranjanrak/optionchainstream) by [ranjanrak](https://github.com/ranjanrak). Built with additional broker support, option chain polling, and multi-broker coordination.
 
+---
+
+## 🤖 For LLMs & AI Assistants
+
+**If you are an AI/LLM helping a developer**: Start with **[LLM_GUIDE.md](LLM_GUIDE.md)** for structured documentation designed specifically for you. It includes:
+- Repository architecture and navigation
+- Streaming vs Polling decision tree
+- Broker-specific rate limits and APIs
+- Complete code examples and patterns
+
+**Quick Links for LLMs:**
+- **[LLM_GUIDE.md](LLM_GUIDE.md)** - AI-optimized documentation
+- **[docs/API_USAGE.md](docs/API_USAGE.md)** - Polling vs Streaming patterns
+- **[docs/BROKER_APIS.md](docs/BROKER_APIS.md)** - Rate limits & API links
+
+---
+
 ## ✨ Features
 
 ### 🔌 Multi-Broker Support
