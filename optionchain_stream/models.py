@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 from datetime import datetime
 
@@ -69,6 +69,25 @@ class OptionChainRow:
     pe_vega:       float
     lotsize:       int
     quality_flag:  int  # 0=clean 1=zero_ltp 2=missing_greeks 3=gap 4=stale
+    # tianjin-7nm: moneyness / strike enrichment
+    moneyness:              str   = ""     # ITM/ATM/OTM from CE perspective
+    distance_from_spot_pct: float = 0.0   # (strike - spot) / spot * 100
+    days_to_expiry:         int   = 0
+    ce_intrinsic:           float = 0.0
+    pe_intrinsic:           float = 0.0
+    ce_time_value:          float = 0.0
+    pe_time_value:          float = 0.0
+    # tianjin-1da: synthetic futures
+    synthetic_futures:      float = 0.0   # ce_ltp - pe_ltp + strike
+    # tianjin-6to: gamma exposure per strike
+    ce_gex:  float = 0.0
+    pe_gex:  float = 0.0
+    net_gex: float = 0.0
+    # tianjin-6r0: per-strike PCR
+    strike_pcr: Optional[float] = None
+    # tianjin-bjh: delta OI per cycle
+    ce_oi_change: int = 0
+    pe_oi_change: int = 0
 
 
 @dataclass
@@ -82,3 +101,12 @@ class CycleHealth:
     stale_warnings:   int
     duration_ms:      int
     error:            str | None
+    # tianjin-1da: chain-level straddle metrics (keyed by (underlying, expiry))
+    atm_straddle_premium:     Optional[float] = None
+    synthetic_futures_spread: Optional[float] = None
+    # tianjin-6to: GEX flip strike (keyed by (underlying, expiry))
+    gex_flip_strike: Optional[float] = None
+    # tianjin-6r0: OI concentration zones (keyed by (underlying, expiry))
+    oi_zones: Optional[dict] = None
+    # tianjin-7q0: max pain strike (keyed by (underlying, expiry))
+    max_pain_strike: Optional[float] = None

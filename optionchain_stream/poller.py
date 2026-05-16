@@ -5,6 +5,10 @@ import time
 
 from optionchain_stream.formatters.wide import to_wide_rows
 from optionchain_stream.models import CycleHealth, OptionChainRow
+from optionchain_stream.analytics.straddle import compute_atm_straddle, compute_synthetic_futures_spread
+from optionchain_stream.analytics.gex import compute_gex_flip
+from optionchain_stream.analytics.pcr import compute_oi_zones
+from optionchain_stream.analytics.max_pain import compute_max_pain
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +49,7 @@ class OptionChainPoller:
     def poll_once(self) -> tuple[list[OptionChainRow], CycleHealth]:
         """
         Fetch all underlyings for all active expiries.
-        Formats to WIDE rows. Applies quality_flag.
+        Formats to WIDE rows. Applies quality_flag and analytics.
         Returns (rows, health). Does NOT write anywhere.
         """
         start_ms = int(time.monotonic() * 1000)
@@ -57,6 +61,14 @@ class OptionChainPoller:
         stale_warnings = 0
         first_error: str | None = None
 
+        # aggregated analytics — last (underlying, expiry) slice wins;
+        # callers needing per-expiry values should group rows themselves
+        atm_straddle_premium: float | None = None
+        synthetic_futures_spread_val: float | None = None
+        gex_flip_strike: float | None = None
+        oi_zones: dict | None = None
+        max_pain_strike: float | None = None
+
         for underlying in self._symbols:
             expiries = self.active_expiries(underlying)
             if not expiries:
@@ -66,6 +78,7 @@ class OptionChainPoller:
             for expiry in expiries:
                 try:
                     chain = self._coordinator.fetch_chain(underlying, expiry)
+                    spot = float(chain.get("spot_price") or 0.0)
                     key = (underlying, expiry)
                     prev = self._prev_snapshots.get(key)
 
@@ -82,6 +95,15 @@ class OptionChainPoller:
                     self._prev_snapshots[key] = {r.strike: r for r in rows}
                     all_rows.extend(rows)
                     success = True
+
+                    straddle = compute_atm_straddle(rows, spot)
+                    if straddle:
+                        atm_straddle_premium = straddle["straddle_premium"]
+                        synthetic_futures_spread_val = compute_synthetic_futures_spread(rows, spot)
+
+                    gex_flip_strike = compute_gex_flip(rows, spot)
+                    oi_zones = compute_oi_zones(rows)
+                    max_pain_strike = compute_max_pain(rows)
 
                 except Exception as exc:
                     msg = f"{underlying}/{expiry}: {exc}"
@@ -104,6 +126,11 @@ class OptionChainPoller:
             stale_warnings=stale_warnings,
             duration_ms=duration_ms,
             error=first_error,
+            atm_straddle_premium=atm_straddle_premium,
+            synthetic_futures_spread=synthetic_futures_spread_val,
+            gex_flip_strike=gex_flip_strike,
+            oi_zones=oi_zones,
+            max_pain_strike=max_pain_strike,
         )
         return all_rows, health
 

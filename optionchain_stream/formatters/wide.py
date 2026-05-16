@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime
 from optionchain_stream.models import OptionChainRow
 
 log = logging.getLogger(__name__)
 
 _ZERO = 0.0
 _GREEK_KEYS = ("iv", "delta", "theta", "gamma", "vega")
+_ATM_THRESHOLD = 0.002  # within 0.2% of spot counts as ATM
 
 
 def _extract_greeks(side: dict) -> dict:
@@ -54,6 +56,24 @@ def _is_stale(prev: OptionChainRow, fields: dict) -> bool:
     return all(getattr(prev, k) == fields[k] for k in stale_keys)
 
 
+def _parse_expiry_date(expiry_str: str) -> date | None:
+    """Parse broker expiry strings like '29MAY26' or '2026-05-29'."""
+    for fmt in ("%d%b%y", "%Y-%m-%d", "%d-%b-%Y"):
+        try:
+            return datetime.strptime(expiry_str.upper(), fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _moneyness(strike: float, spot: float) -> str:
+    if spot == 0:
+        return ""
+    if abs(strike - spot) / spot <= _ATM_THRESHOLD:
+        return "ATM"
+    return "ITM" if strike < spot else "OTM"
+
+
 def to_wide_rows(
     chain_response: dict,
     underlying: str,
@@ -62,8 +82,12 @@ def to_wide_rows(
     lotsize: int,
     prev_snapshot: dict[float, OptionChainRow] | None = None,
 ) -> list[OptionChainRow]:
-    """Convert broker nested chain dict to flat WIDE rows with quality_flag."""
+    """Convert broker nested chain dict to flat WIDE rows with quality_flag and analytics."""
     rows: list[OptionChainRow] = []
+
+    spot = float(chain_response.get("spot_price") or 0.0)
+    today = date.fromtimestamp(timestamp)
+    expiry_date = _parse_expiry_date(expiry)
 
     for strike_data in chain_response.get("strikes", []):
         try:
@@ -102,6 +126,41 @@ def to_wide_rows(
             prev_row = (prev_snapshot or {}).get(strike)
             flag = _quality_flag(ce, pe, ce_g, pe_g, prev_row, fields)
 
+            ce_ltp = fields["ce_ltp"]
+            pe_ltp = fields["pe_ltp"]
+            ce_oi  = fields["ce_oi"]
+            pe_oi  = fields["pe_oi"]
+
+            # tianjin-7nm: moneyness enrichment
+            moneyness = _moneyness(strike, spot)
+            distance_from_spot_pct = (strike - spot) / spot * 100 if spot != 0 else 0.0
+            dte = (expiry_date - today).days if expiry_date is not None else 0
+            ce_intrinsic = max(0.0, spot - strike)
+            pe_intrinsic = max(0.0, strike - spot)
+            ce_time_value = max(0.0, ce_ltp - ce_intrinsic)
+            pe_time_value = max(0.0, pe_ltp - pe_intrinsic)
+
+            # tianjin-1da: synthetic futures (ce - pe + strike ≈ forward price)
+            synthetic_futures = ce_ltp - pe_ltp + strike
+
+            # tianjin-6to: GEX — skip when Greeks are missing (quality_flag == 2)
+            if flag != 2 and spot != 0:
+                ce_gex = ce_g["gamma"] * ce_oi * lotsize * spot
+                pe_gex = pe_g["gamma"] * pe_oi * lotsize * spot
+                net_gex = pe_gex - ce_gex
+            else:
+                ce_gex = pe_gex = net_gex = 0.0
+
+            # tianjin-6r0: per-strike PCR
+            strike_pcr = pe_oi / ce_oi if ce_oi > 0 else None
+
+            # tianjin-bjh: delta OI vs previous cycle
+            if prev_row is not None:
+                ce_oi_change = ce_oi - prev_row.ce_oi
+                pe_oi_change = pe_oi - prev_row.pe_oi
+            else:
+                ce_oi_change = pe_oi_change = 0
+
             row = OptionChainRow(
                 timestamp=timestamp,
                 underlying=underlying,
@@ -111,6 +170,20 @@ def to_wide_rows(
                 pe_symbol=pe.get("symbol", ""),
                 lotsize=lotsize,
                 quality_flag=flag,
+                moneyness=moneyness,
+                distance_from_spot_pct=distance_from_spot_pct,
+                days_to_expiry=dte,
+                ce_intrinsic=ce_intrinsic,
+                pe_intrinsic=pe_intrinsic,
+                ce_time_value=ce_time_value,
+                pe_time_value=pe_time_value,
+                synthetic_futures=synthetic_futures,
+                ce_gex=ce_gex,
+                pe_gex=pe_gex,
+                net_gex=net_gex,
+                strike_pcr=strike_pcr,
+                ce_oi_change=ce_oi_change,
+                pe_oi_change=pe_oi_change,
                 **fields,
             )
             rows.append(row)
