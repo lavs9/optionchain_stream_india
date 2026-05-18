@@ -310,14 +310,33 @@ class BrokerCoordinator:
           api_secret — access token (pre-generated; pipeline uses this pattern)
 
         Optional keys:
+          analytics_token    — Upstox long-lived Analytics Token (1-year, no OAuth).
+                               When present and broker=="upstox", UpstoxAnalyticsBroker
+                               is used instead of the OAuth UpstoxBroker.
+                               Generate at: https://account.upstox.com/developer/apps#analytics
           subscription_limit — default 2000
+
+        Upstox — two auth modes
+        -----------------------
+        OAuth (daily token, streaming + trading):
+            {"broker": "upstox", "api_key": "<client_id>", "api_secret": "<access_token>"}
+
+        Analytics Token (1-year, read-only, no OAuth flow):
+            {"broker": "upstox", "analytics_token": "<token>"}
+            api_key / api_secret are ignored when analytics_token is provided.
         """
         broker_name = (cfg.get("broker") or "").lower().strip()
         api_key = cfg.get("api_key", "")
         api_secret = cfg.get("api_secret", "")  # treated as access_token
+        analytics_token = cfg.get("analytics_token", "")
         limit = int(cfg.get("subscription_limit", 2000))
 
-        if broker_name == "zerodha":
+        # Upstox: analytics token mode takes precedence over OAuth mode
+        if broker_name == "upstox" and analytics_token:
+            from optionchain_stream.brokers.upstox_analytics_broker import UpstoxAnalyticsBroker
+            broker = UpstoxAnalyticsBroker(analytics_token=analytics_token)
+
+        elif broker_name == "zerodha":
             from optionchain_stream.brokers.zerodha_broker import ZerodhaBroker
             broker = ZerodhaBroker(api_key=api_key, access_token=api_secret)
 
@@ -342,7 +361,8 @@ class BrokerCoordinator:
 
         else:
             raise ValueError(
-                f"Unknown broker {broker_name!r}. Valid values: zerodha, upstox, fyers, dhan"
+                f"Unknown broker {broker_name!r}. "
+                f"Valid values: zerodha, upstox, fyers, dhan"
             )
 
         coord = cls()
