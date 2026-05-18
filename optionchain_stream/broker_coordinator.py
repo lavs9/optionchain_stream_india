@@ -72,9 +72,13 @@ class BrokerCoordinator:
         )
         self.brokers.append(config)
         
-        # Attach callback to broker
-        broker.on_tick(self._handle_broker_tick)
-        
+        # Attach callback to broker (read-only brokers like UpstoxAnalyticsBroker
+        # raise NotImplementedError here — that's expected and safe to ignore).
+        try:
+            broker.on_tick(self._handle_broker_tick)
+        except NotImplementedError:
+            logging.debug(f"Broker {name} is read-only; skipping tick callback registration")
+
         logging.info(f"Added broker: {name} (limit: {subscription_limit})")
         
     def subscribe(self, tokens: List[str], mode: str = "full") -> Dict[str, int]:
