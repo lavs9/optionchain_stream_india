@@ -56,3 +56,14 @@ class ZerodhaBroker(Broker):
 
     def connect(self):
         self.kws.connect()
+
+    def fetch_option_chain(self, symbol: str, expiry: str) -> dict:
+        """
+        Reconstruct option chain via batch kite.quote() + Black-76 Greeks.
+        Delegates to ZerodhaChainFetcher which produces the same wire shape
+        as Upstox fetch_option_chain(), so to_wide_rows() handles both.
+        """
+        from optionchain_stream.brokers.zerodha_chain import ZerodhaChainFetcher
+        if not hasattr(self, '_chain_fetcher'):
+            self._chain_fetcher = ZerodhaChainFetcher(self.kite)
+        return self._chain_fetcher.fetch_chain(symbol, expiry)
