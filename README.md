@@ -1,77 +1,86 @@
-# 🚀 Option Chain Stream India
+# Option Chain Stream India
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Enterprise-grade real-time option chain streaming for Indian markets** with multi-broker support, unified data models, and production-ready storage architecture.
+Enterprise-grade real-time option chain streaming for Indian markets with multi-broker support, unified data models, WIDE-format output with Greeks, and production-ready storage.
 
-> **Credits**: Enhanced fork of [optionchainstream](https://github.com/ranjanrak/optionchainstream) by [ranjanrak](https://github.com/ranjanrak). Built with additional broker support, option chain polling, and multi-broker coordination.
-
----
-
-## 🤖 For LLMs & AI Assistants
-
-**If you are an AI/LLM helping a developer**: Start with **[LLM_GUIDE.md](LLM_GUIDE.md)** for structured documentation designed specifically for you. It includes:
-- Repository architecture and navigation
-- Streaming vs Polling decision tree
-- Broker-specific rate limits and APIs
-- Complete code examples and patterns
-
-**Quick Links for LLMs:**
-- **[LLM_GUIDE.md](LLM_GUIDE.md)** - AI-optimized documentation
-- **[docs/API_USAGE.md](docs/API_USAGE.md)** - Polling vs Streaming patterns
-- **[docs/BROKER_APIS.md](docs/BROKER_APIS.md)** - Rate limits & API links
+> Built on [optionchainstream](https://github.com/ranjanrak/optionchainstream) by [ranjanrak](https://github.com/ranjanrak). Extended with multi-broker coordination, option chain polling, WIDE formatter, Greeks, and quality flags.
 
 ---
 
-## ✨ Features
+## For AI Agents
 
-### 🔌 Multi-Broker Support
-- **Upstox** ✅ (Streaming + Option Chain with Greeks)
-- **Dhan** ⚠️ (REST API ready, WebSocket needs subscription)
-- **Fyers** 🚧 (SDK integrated, testing in progress)
-- **Zerodha Kite** 🚧 (Coming soon)
+If you are an AI assistant helping a developer with this repository, start with **[AGENTS.md](AGENTS.md)**. It covers architecture, data models, code patterns, broker implementation guides, and decision trees.
 
-### 🎯 Core Capabilities
-- **Real-time WebSocket Streaming**: Sub-millisecond latency for equities, futures, and options
-- **Option Greeks**: Delta, Theta, Vega, Gamma, IV, Probability of Profit
-- **Option Chain Polling**: Full snapshots with Greeks for NIFTY, BANKNIFTY
-- **Multi-Broker Coordinator**: Bypass subscription limits, run 4000+ instruments
-- **Unified Data Model**: Broker-agnostic `Tick` and `Instrument` interfaces
-- **Production Storage**: Redis (real-time), ClickHouse (analytics), S3 (archival)
+---
 
-### 🎁 Advanced Features
-- **BrokerCoordinator**: Auto-distribute instruments across multiple accounts
-- **Hybrid Streaming + Polling**: Real-time for ATM strikes, snapshots for full chain
-- **Health Monitoring**: Track connections, subscriptions, tick rates
-- **Automatic Reconnection**: Resilient WebSocket handling
-- **Thread-Safe**: Concurrent operations with proper synchronization
+## Features
 
-## 📦 Installation
+### Multi-Broker Support
+
+| Broker | Streaming | Option Chain | Greeks | Status |
+|--------|-----------|--------------|--------|--------|
+| **Upstox** (OAuth) | Yes | Yes | Yes | Daily token; streaming + trading. 2000 instrument limit per account. |
+| **Upstox** (Analytics Token) | No | Yes | Yes | **1-year token, no OAuth flow.** Read-only polling; no streaming. |
+| **Fyers** | Partial | Yes | Yes | Native `optionchain()` API. 50 strikes per side. WebSocket in progress. |
+| **Dhan** | Yes | Partial | No | REST API works. WebSocket needs paid subscription. |
+| **Zerodha** | Yes | Partial | No | Chain reconstruction from tick data. |
+
+### Core Capabilities
+
+- **Real-time WebSocket Streaming** — sub-millisecond latency for equities, futures, and options
+- **Option Chain Polling** — full snapshots with Greeks for NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY
+- **WIDE Format Output** — CE and PE side-by-side in a single flat row per strike, with 30+ fields
+- **Quality Flags** — automatic detection of zero LTP, missing Greeks, and stale data
+- **Multi-Broker Coordinator** — distribute 4000+ instruments across multiple accounts
+- **Market-Hours Poller** — `is_market_open()` guard; skips polling outside NSE hours
+- **Production Storage** — Redis (real-time), ClickHouse (analytics), S3/Parquet (archival)
+- **Instrument Caching** — Redis-backed with in-memory fallback, 1-hour TTL
+
+---
+
+## Installation
 
 ```bash
-# Clone repository
 git clone https://github.com/lavs9/optionchain_stream_india.git
 cd optionchain_stream_india
 
-# Create virtual environment
 python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# Install dependencies
 pip install -r requirements.txt
+
+# Zerodha extras (optional)
+pip install -e ".[zerodha]"
 ```
 
-## 🔑 Configuration
+---
 
-Set environment variables for your broker(s):
+## Configuration
 
-### Upstox
+All credentials are read from environment variables. Never commit `.env` files.
+
+### Upstox — OAuth (daily token, streaming + trading)
 ```bash
 export UPSTOX_CLIENT_ID="your_client_id"
 export UPSTOX_CLIENT_SECRET="your_client_secret"
 export UPSTOX_REDIRECT_URI="http://localhost"
-export UPSTOX_ACCESS_TOKEN="your_access_token"
+export UPSTOX_ACCESS_TOKEN="your_access_token"   # expires daily
+```
+
+### Upstox — Analytics Token (1-year, no OAuth flow, read-only)
+Generate once at https://account.upstox.com/developer/apps#analytics
+```bash
+export UPSTOX_ANALYTICS_TOKEN="eyJ..."   # valid for 1 year
+```
+Use `UpstoxAnalyticsBroker` or pass `analytics_token` to `BrokerCoordinator.from_config()`.
+No `CLIENT_ID`, `CLIENT_SECRET`, or `REDIRECT_URI` needed.
+
+### Fyers
+```bash
+export FYERS_CLIENT_ID="your_client_id"
+export FYERS_ACCESS_TOKEN="your_access_token"   # expires daily, re-generate each morning
 ```
 
 ### Dhan
@@ -80,246 +89,288 @@ export DHAN_CLIENT_ID="your_client_id"
 export DHAN_ACCESS_TOKEN="your_access_token"
 ```
 
-### Fyers
+### Zerodha
 ```bash
-export FYERS_CLIENT_ID="your_client_id"
-export FYERS_ACCESS_TOKEN="your_access_token"
+export ZERODHA_API_KEY="your_api_key"
+export ZERODHA_ACCESS_TOKEN="your_access_token"
 ```
 
-### Storage (Optional)
+### Storage (optional)
 ```bash
+# Redis — instrument cache + real-time storage
 export REDIS_HOST="localhost"
 export REDIS_PORT="6379"
+export REDIS_DB="0"
+
+# ClickHouse — time-series analytics
 export CLICKHOUSE_HOST="localhost"
 export CLICKHOUSE_PORT="9000"
+export CLICKHOUSE_USER="default"
+export CLICKHOUSE_DB="optionchain"
+
+# S3 — Parquet archival
+export AWS_ACCESS_KEY_ID="your_key"
+export AWS_SECRET_ACCESS_KEY="your_secret"
+export S3_BUCKET_NAME="your_bucket"
 ```
 
-## 🚀 Quick Start
+---
 
-### Basic Streaming
+## Quick Start
+
+### 1. Poll Option Chain (WIDE format with Greeks)
+
+```python
+from optionchain_stream.brokers.fyers_broker import FyersBroker
+from optionchain_stream.broker_coordinator import BrokerCoordinator
+from optionchain_stream.poller import OptionChainPoller
+from optionchain_stream.market_calendar import MarketCalendar  # market-hours guard
+
+broker = FyersBroker(
+    client_id=os.getenv("FYERS_CLIENT_ID"),
+    access_token=os.getenv("FYERS_ACCESS_TOKEN"),
+)
+
+coordinator = BrokerCoordinator()
+coordinator.add_broker(broker, subscription_limit=2000, name="fyers-1")
+
+poller = OptionChainPoller(
+    broker_coordinator=coordinator,
+    symbols=["NIFTY", "BANKNIFTY"],
+    market_calendar=MarketCalendar(),
+    interval_sec=300,
+)
+
+if poller.is_market_open():
+    rows, health = poller.poll_once()
+    print(f"Got {len(rows)} rows | gaps={health.gaps} | {health.duration_ms}ms")
+    for row in rows[:3]:
+        print(f"  {row.underlying} {row.strike:>8.0f}  CE={row.ce_ltp}  PE={row.pe_ltp}  flag={row.quality_flag}")
+```
+
+### 2. Stream Real-Time Ticks (WebSocket)
 
 ```python
 from optionchain_stream.brokers.upstox_broker import UpstoxBroker
-import os
 
-# Initialize broker
 broker = UpstoxBroker(
     client_id=os.getenv("UPSTOX_CLIENT_ID"),
     client_secret=os.getenv("UPSTOX_CLIENT_SECRET"),
     redirect_uri="http://localhost",
-    access_token=os.getenv("UPSTOX_ACCESS_TOKEN")
+    access_token=os.getenv("UPSTOX_ACCESS_TOKEN"),
 )
 
-# Define callback
 def on_tick(ticks):
     for tick in ticks:
-        print(f"{tick.token}: LTP={tick.last_price}, OI={tick.oi}, Vol={tick.volume}")
+        print(f"{tick.token}: ltp={tick.last_price}  oi={tick.oi}  vol={tick.volume}")
 
-# Subscribe and connect
-broker.on_tick(on_tick)
-
-# Get NIFTY options
 provider = broker.get_instrument_provider()
 instruments = provider.fetch_instruments()
-nifty_options = [i for i in instruments if "NIFTY" in i.symbol][:10]
-tokens = [i.token for i in nifty_options]
+nifty_options = [i for i in instruments if "NIFTY" in i.symbol][:20]
 
-broker.subscribe(tokens, mode="full")
-broker.connect()
+broker.on_tick(on_tick)
+broker.subscribe([i.token for i in nifty_options], mode="full")
+broker.connect()  # blocking
 ```
 
-### Streamlit Web Demo 🎨
-
-**Try the interactive web interface!**
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Set credentials
-export DHAN_CLIENT_ID="your_client_id"
-export DHAN_ACCESS_TOKEN="your_access_token"
-
-# Run the demo
-streamlit run streamlit_demo.py
-```
-
-**Deploy to Streamlit Community Cloud:**
-1. Fork this repository
-2. Visit [share.streamlit.io](https://share.streamlit.io)
-3. Deploy from your GitHub repo
-4. Add credentials in Streamlit Cloud Secrets (see [deployment guide](docs/streamlit_demo.md#streamlit-cloud-deployment))
-
-Features:
-- 🔄 Multi-broker support (Dhan, Upstox, Fyers)
-- 📊 Real-time option chain display
-- 📈 Interactive visualizations (IV smile, volume, OI)
-- ⚡ Auto-refresh with configurable intervals
-
-[📖 Full Demo Documentation](docs/streamlit_demo.md)
-
-### Option Chain Polling
-
+### 2b. Poll Option Chain via Upstox Analytics Token (no daily login)
 
 ```python
-# Fetch full option chain with Greeks
-option_chain = broker.fetch_option_chain("NIFTY", "2025-12-09")
+from optionchain_stream.broker_coordinator import BrokerCoordinator
+from optionchain_stream.poller import OptionChainPoller
 
-print(f"Spot: {option_chain['spot_price']}")
-print(f"PCR: {option_chain['pcr']}")
-print(f"Strikes: {len(option_chain['strikes'])}")
+coordinator = BrokerCoordinator.from_config({
+    "broker": "upstox",
+    "analytics_token": os.getenv("UPSTOX_ANALYTICS_TOKEN"),
+})
 
-for strike in option_chain['strikes'][:5]:
-    print(f"\nStrike {strike['strike_price']}:")
-    print(f"  Call: LTP={strike['call_options']['ltp']}, "
-          f"IV={strike['call_options']['option_greeks']['iv']}")
-    print(f"  Put:  LTP={strike['put_options']['ltp']}, "
-          f"IV={strike['put_options']['option_greeks']['iv']}")
+poller = OptionChainPoller(
+    broker_coordinator=coordinator,
+    symbols=["NIFTY", "BANKNIFTY"],
+    market_calendar=calendar,
+)
+rows, health = poller.poll_once()
 ```
 
-### Multi-Broker Coordinator (Bypass Limits)
+Or construct the broker directly:
+```python
+from optionchain_stream.brokers.upstox_analytics_broker import UpstoxAnalyticsBroker
+
+broker = UpstoxAnalyticsBroker(analytics_token=os.getenv("UPSTOX_ANALYTICS_TOKEN"))
+chain = broker.fetch_option_chain("NIFTY", "2026-05-29")
+```
+
+### 3. Multi-Broker Coordinator (bypass per-account limits)
 
 ```python
 from optionchain_stream.broker_coordinator import BrokerCoordinator
 
-# Create coordinator
 coordinator = BrokerCoordinator()
-
-# Add 2 Upstox accounts (bypass 2000-instrument limit)
 coordinator.add_broker(broker1, subscription_limit=2000, name="Account-1")
 coordinator.add_broker(broker2, subscription_limit=2000, name="Account-2")
 
-# Subscribe to 3000 instruments (auto-distributed!)
-all_tokens = [...]  # 3000 tokens
+# 3000 tokens auto-distributed across both accounts
 distribution = coordinator.subscribe(all_tokens, mode="full")
-print(f"Distribution: {distribution}")
-# Output: {'Account-1': 2000, 'Account-2': 1000}
+# → {'Account-1': 2000, 'Account-2': 1000}
 
-# Single unified callback
 coordinator.on_tick(lambda ticks: print(f"Received {len(ticks)} ticks"))
 coordinator.connect_all()
 ```
 
-### Hybrid: Streaming + Polling
+### 4. Raw Option Chain Polling (without WIDE formatter)
 
 ```python
-# Stream specific ATM strikes for low latency
-coordinator.subscribe(atm_strikes, mode="full")
+# Use directly when you need the nested broker response
+chain = broker.fetch_option_chain("NIFTY", "2025-12-25")
+print(f"Spot: {chain['spot_price']}  PCR: {chain['pcr']}")
 
-# Poll full option chain every 5 seconds
-coordinator.add_option_chain_poller(
-    broker=broker,
-    symbol="NIFTY",
-    expiry="2025-12-09",
-    poll_interval_seconds=5
-)
-
-# Both feed into same callback!
-coordinator.on_tick(process_data)
-coordinator.connect_all()
+for strike in chain['strikes'][:5]:
+    ce = strike['call_options']
+    pe = strike['put_options']
+    print(f"Strike {strike['strike_price']}: CE={ce['ltp']} IV={ce['option_greeks']['iv']}  "
+          f"PE={pe['ltp']} IV={pe['option_greeks']['iv']}")
 ```
 
-## 📖 Examples
+### 5. Streamlit Demo
 
-Check out [`examples/`](examples/) directory:
-
-- **`verify_upstox.py`**: Basic Upstox streaming test
-- **`multi_broker_streaming.py`**: 2 accounts, 3000 instruments
-- **`hybrid_streaming_polling.py`**: Real-time + snapshots combo
-
-Test your setup:
 ```bash
-python3 examples/verify_upstox.py
+export FYERS_CLIENT_ID="..."
+export FYERS_ACCESS_TOKEN="..."
+streamlit run streamlit_demo.py
 ```
 
-## 📚 Documentation
-
-- **[Multi-Broker Setup Guide](docs/multi_broker_setup.md)**: Production architectures, best practices
-- **[Broker Testing Summary](docs/broker_testing.md)**: Verified features per broker
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────┐
-│                 BrokerCoordinator                   │
-│  (Manages multiple brokers + pollers)               │
-└────────────┬────────────────────────┬───────────────┘
-             │                        │
-    ┌────────▼────────┐      ┌────────▼────────┐
-    │ Upstox Broker 1 │      │ Upstox Broker 2 │
-    │  WebSocket      │      │  Option Poller  │
-    └────────┬────────┘      └────────┬────────┘
-             │                        │
-             └────────┬───────────────┘
-                      │
-              ┌───────▼────────┐
-              │  Tick Callback │
-              └───────┬────────┘
-                      │
-      ┌───────────────┼───────────────┐
-      │               │               │
-┌─────▼─────┐  ┌──────▼──────┐  ┌────▼──────┐
-│   Redis   │  │ ClickHouse  │  │    S3     │
-│ (Real-time)│ │ (Analytics) │  │ (Archive) │
-└───────────┘  └─────────────┘  └───────────┘
-```
-
-### Components
-
-1. **Instrument Master**: Parses broker scrip masters (JSON/CSV) → unified `Instrument` model
-2. **Broker Interface**: Abstract base class with `connect()`, `subscribe()`, `fetch_option_chain()`
-3. **Normalization**: Broker-specific WebSocket messages → standardized `Tick` dataclass
-4. **Storage Layer**:
-   - `RedisStorage`: Real-time LTP, OI, Volume caching
-   - `ClickHouseStorage`: Time-series tick data for backtesting
-   - `S3Snapshotter`: Option chain snapshots with timestamps
-
-## 🔒 Security & Public Release
-
-✅ **No hardcoded credentials** - All tokens use environment variables  
-✅ **Comprehensive .gitignore** - Excludes `.env`, tokens, secrets  
-✅ **Example configs** - Safe placeholder values only
-
-## 📊 Broker Status
-
-| Broker | Streaming | Option Chain | Greeks | Notes |
-|--------|-----------|--------------|--------|-------|
-| **Upstox** | ✅ | ✅ | ✅ | Production ready. 2000 instrument limit. |
-| **Dhan** | ⚠️ | ⚠️ | - | REST API works. WebSocket needs paid subscription. |
-| **Fyers** | 🚧 | 🚧 | - | SDK integrated, testing in progress. |
-| **Zerodha** | 🚧 | ❌ | - | Coming soon. |
-
-## 🚧 Roadmap
-
-- [ ] Zerodha Kite full integration
-- [ ] Fyers WebSocket verification
-- [ ] Paper trading simulator
-- [ ] Pre-built Docker images
-- [ ] Kubernetes deployment configs
-- [ ] Strategy backtesting framework
-
-## 🤝 Contributing
-
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## ⚠️ Disclaimer
-
-This software is for **educational and research purposes only**. Trading in derivatives involves substantial risk. The authors are not responsible for any financial losses incurred through use of this software. Always test thoroughly in a paper trading environment first.
-
-## 📄 License
-
-[MIT License](LICENSE) - Free to use, modify, and distribute.
-
-## 🙏 Acknowledgments
-
-- [ranjanrak/optionchainstream](https://github.com/ranjanrak/optionchainstream) - Original inspiration
-- Broker API teams for excellent documentation
+Features: multi-broker selector, real-time option chain table, IV smile chart, OI visualizations, auto-refresh.
 
 ---
 
-**Made with ❤️ for the Indian algo trading community**
+## WIDE Format
+
+`OptionChainPoller.poll_once()` returns `list[OptionChainRow]` — one row per strike with CE and PE fields side by side.
+
+```
+timestamp | underlying | expiry | strike | ce_symbol | ce_ltp | ce_bid | ce_ask |
+ce_open | ce_high | ce_low | ce_prev_close | ce_volume | ce_oi |
+ce_iv | ce_delta | ce_theta | ce_gamma | ce_vega |
+pe_symbol | pe_ltp | ... (same 14 fields) | lotsize | quality_flag
+```
+
+### Quality Flags
+
+| Flag | Meaning | Action |
+|------|---------|--------|
+| `0` | Clean | Safe to use |
+| `1` | Zero LTP — stale price on either side | Skip or alert |
+| `2` | Greeks missing or both IVs are zero | Skip Greeks fields |
+| `4` | Stale — all price/Greek fields identical to previous cycle | Likely no quote update |
+
+---
+
+## Architecture
+
+```
+Broker (WebSocket / REST)
+  └─ normalize ──► Tick / raw chain dict
+                         │
+             BrokerCoordinator
+             (distributes tokens, unified callback)
+                         │
+              OptionChainPoller
+              (market-hours guard, per-expiry fetch)
+                         │
+             WIDE Formatter (to_wide_rows)
+             (flat OptionChainRow + quality_flag)
+                         │
+          ┌──────────────┼──────────────┐
+       Redis          ClickHouse        S3
+    (real-time)      (analytics)     (Parquet)
+```
+
+### Package Layout
+
+```
+optionchain_stream/
+├── __init__.py               # exports OptionChainPoller, OptionChainRow, CycleHealth
+├── models.py                 # Instrument, Tick, OptionChainRow, CycleHealth dataclasses
+├── broker_interface.py       # Abstract base class — contract all brokers must satisfy
+├── broker_coordinator.py     # Multi-broker orchestration and token distribution
+├── poller.py                 # OptionChainPoller — market-hours guard + WIDE output
+├── config.py                 # Environment variable loading
+├── instrument_cache.py       # Redis + in-memory instrument caching
+├── redis_storage.py          # Real-time tick persistence
+├── clickhouse_storage.py     # Time-series analytics storage
+├── s3_snapshotter.py         # Parquet archival to S3
+├── storage_interface.py      # Abstract storage interface
+├── brokers/
+│   ├── fyers_broker.py       # Fyers — native option chain API, 50 strikes
+│   ├── upstox_broker.py           # Upstox — WebSocket + REST, OAuth daily token
+│   ├── upstox_analytics_broker.py # Upstox — REST-only, 1-year Analytics Token
+│   ├── dhan_broker.py        # Dhan — REST + WebSocket
+│   ├── zerodha_broker.py     # Zerodha — WebSocket streaming
+│   └── zerodha_chain.py      # Zerodha chain reconstruction from tick data
+├── instrument_master/
+│   ├── instrument_provider.py  # Abstract base
+│   ├── fyers_provider.py
+│   ├── upstox_provider.py
+│   ├── dhan_provider.py
+│   └── zerodha_provider.py
+└── formatters/
+    └── wide.py               # to_wide_rows() — converts nested chain to flat WIDE rows
+```
+
+---
+
+## Documentation
+
+- **[AGENTS.md](AGENTS.md)** — AI agent and LLM usage guide (architecture, patterns, broker implementation guide)
+- **[docs/API_USAGE.md](docs/API_USAGE.md)** — Polling vs Streaming decision guide
+- **[docs/BROKER_APIS.md](docs/BROKER_APIS.md)** — Rate limits and official API links per broker
+- **[docs/EXAMPLES.md](docs/EXAMPLES.md)** — 11 ready-to-run code examples
+- **[docs/multi_broker_setup.md](docs/multi_broker_setup.md)** — Production architecture guide
+- **[docs/streamlit_demo.md](docs/streamlit_demo.md)** — Streamlit deployment guide
+
+---
+
+## Examples
+
+```bash
+python3 examples/verify_upstox.py         # basic Upstox streaming test
+python3 examples/verify_fyers.py          # Fyers option chain test
+python3 examples/verify_dhan.py           # Dhan API test
+python3 examples/multi_broker_streaming.py    # 2 accounts, 3000 instruments
+python3 examples/hybrid_streaming_polling.py  # real-time + snapshot combo
+```
+
+---
+
+## Roadmap
+
+- [ ] Fyers WebSocket streaming (in progress)
+- [ ] Zerodha full option chain via REST
+- [ ] Greeks computation for brokers that don't provide them natively
+- [ ] Paper trading simulator
+- [ ] Docker images and Kubernetes configs
+- [ ] Strategy backtesting framework
+
+---
+
+## Security
+
+- No hardcoded credentials — all tokens via environment variables
+- `.gitignore` covers `.env`, `*.token`, `*.key`, `credentials.json`, `secrets.toml`
+- Never commit access tokens — they are daily-expiry secrets
+
+---
+
+## Disclaimer
+
+For educational and research purposes only. Trading in derivatives involves substantial risk. The authors are not responsible for any financial losses. Always test thoroughly in a paper trading environment first.
+
+---
+
+## License
+
+[MIT License](LICENSE)
+
+## Credits
+
+- [ranjanrak/optionchainstream](https://github.com/ranjanrak/optionchainstream) — original inspiration
