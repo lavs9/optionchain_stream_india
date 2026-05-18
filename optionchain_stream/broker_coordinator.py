@@ -273,6 +273,78 @@ class BrokerCoordinator:
         """Stop all pollers and disconnect brokers."""
         for poller in self.pollers:
             poller.stop()
-        
+
         # Note: Broker disconnection depends on broker implementation
         logging.info("Stopped all pollers")
+
+    # ── Methods required by OptionChainPoller.poll_once() ────────────────────
+
+    def fetch_chain(self, underlying: str, expiry: str) -> dict:
+        """
+        Fetch option chain from the primary (first) registered broker.
+        Returns the broker-normalised nested dict consumed by to_wide_rows().
+        """
+        if not self.brokers:
+            raise RuntimeError("No brokers registered in BrokerCoordinator")
+        return self.brokers[0].broker.fetch_option_chain(underlying, expiry)
+
+    def get_instrument_provider(self):
+        """
+        Return the InstrumentProvider of the primary broker.
+        Exposes get_active_expiries() and get_lotsize() to OptionChainPoller.
+        """
+        if not self.brokers:
+            raise RuntimeError("No brokers registered in BrokerCoordinator")
+        return self.brokers[0].broker.get_instrument_provider()
+
+    # ── Factory ──────────────────────────────────────────────────────────────
+
+    @classmethod
+    def from_config(cls, cfg: dict) -> "BrokerCoordinator":
+        """
+        Build a BrokerCoordinator from a flat config dict.
+
+        Required keys:
+          broker     — "zerodha" | "upstox" | "fyers" | "dhan"
+          api_key    — broker API key / client ID
+          api_secret — access token (pre-generated; pipeline uses this pattern)
+
+        Optional keys:
+          subscription_limit — default 2000
+        """
+        broker_name = (cfg.get("broker") or "").lower().strip()
+        api_key = cfg.get("api_key", "")
+        api_secret = cfg.get("api_secret", "")  # treated as access_token
+        limit = int(cfg.get("subscription_limit", 2000))
+
+        if broker_name == "zerodha":
+            from optionchain_stream.brokers.zerodha_broker import ZerodhaBroker
+            broker = ZerodhaBroker(api_key=api_key, access_token=api_secret)
+
+        elif broker_name == "upstox":
+            from optionchain_stream.brokers.upstox_broker import UpstoxBroker
+            # client_secret and redirect_uri only needed for OAuth code-flow;
+            # pipeline uses a pre-generated access_token so they can be empty.
+            broker = UpstoxBroker(
+                client_id=api_key,
+                client_secret=cfg.get("client_secret", ""),
+                redirect_uri=cfg.get("redirect_uri", ""),
+                access_token=api_secret,
+            )
+
+        elif broker_name == "fyers":
+            from optionchain_stream.brokers.fyers_broker import FyersBroker
+            broker = FyersBroker(client_id=api_key, access_token=api_secret)
+
+        elif broker_name == "dhan":
+            from optionchain_stream.brokers.dhan_broker import DhanBroker
+            broker = DhanBroker(client_id=api_key, access_token=api_secret)
+
+        else:
+            raise ValueError(
+                f"Unknown broker {broker_name!r}. Valid values: zerodha, upstox, fyers, dhan"
+            )
+
+        coord = cls()
+        coord.add_broker(broker, subscription_limit=limit)
+        return coord
