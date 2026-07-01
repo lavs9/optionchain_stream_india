@@ -59,7 +59,8 @@ class UpstoxInstrumentProvider(InstrumentProvider):
                         lot_size=int(item.get('lot_size', 0)),
                         instrument_type=item.get('instrument_type'),
                         broker_token=item.get('instrument_key'),
-                        tick_size=float(item.get('tick_size', 0.05))
+                        tick_size=float(item.get('tick_size', 0.05)),
+                        underlying_symbol=item.get('underlying_symbol', '')
                     )
                     instruments.append(inst)
                     self.instruments_map[inst.token] = inst

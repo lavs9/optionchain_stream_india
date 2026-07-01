@@ -23,12 +23,16 @@ Supported APIs (via Analytics Token):
 """
 from __future__ import annotations
 
+import gzip
+import json
 import logging
-from typing import Any, Callable, Dict, List
+import time
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
 
 from optionchain_stream.broker_interface import Broker
+from optionchain_stream.instrument_cache import InstrumentCache
 from optionchain_stream.instrument_master.instrument_provider import InstrumentProvider
 from optionchain_stream.instrument_master.upstox_provider import UpstoxInstrumentProvider
 from optionchain_stream.models import Tick
@@ -36,9 +40,16 @@ from optionchain_stream.models import Tick
 log = logging.getLogger(__name__)
 
 _CHAIN_ENDPOINT = "https://api.upstox.com/v2/option/chain"
+_CONTRACT_ENDPOINT = "https://api.upstox.com/v2/option/contract"
+
+# Complete instrument master — includes NSE_FO (stock + index option underlyings)
+# and BSE instruments, so we can resolve any F&O underlying_symbol → underlying_key.
+_INSTRUMENTS_URL = "https://assets.upstox.com/market-quote/instruments/exchange/complete.json.gz"
 
 # Canonical instrument_key mapping for common NSE/BSE indices.
-# Passed as the `instrument_key` query param to the option chain endpoint.
+# Consulted first (before the downloaded map) so the indices the poller opens
+# with resolve instantly without a network round-trip, and so BSE indices
+# (SENSEX/BANKEX) — absent from the NSE_FO download — still resolve.
 _INSTRUMENT_KEY_MAP: dict[str, str] = {
     "NIFTY":      "NSE_INDEX|Nifty 50",
     "BANKNIFTY":  "NSE_INDEX|Nifty Bank",
@@ -147,6 +158,13 @@ class UpstoxAnalyticsBroker(Broker):
         - open/high/low fields are 0 (not returned by the option chain endpoint)
     """
 
+    # Class-level cache of the underlying_symbol → underlying_key map.
+    # Shared across instances (the contract/chain master changes at most once
+    # a day), with a 1h TTL to pick up new expiries/listings.
+    _underlying_key_map: Optional[dict[str, str]] = None
+    _underlying_key_cache = InstrumentCache(cache_ttl_seconds=3600)
+    _UNDERLYING_KEY_CACHE_KEY = "upstox_underlying_keys"
+
     def __init__(self, analytics_token: str) -> None:
         self._token = analytics_token
         self._instrument_provider = UpstoxInstrumentProvider()
@@ -155,6 +173,112 @@ class UpstoxAnalyticsBroker(Broker):
             "Authorization": f"Bearer {analytics_token}",
             "Accept": "application/json",
         })
+
+    # ── underlying_symbol → underlying_key resolution ──────────────────────
+
+    @classmethod
+    def _load_underlying_key_map(cls) -> dict[str, str]:
+        """
+        Build (and cache) underlying_symbol → underlying_key for every NSE
+        F&O underlying, from the Upstox complete instrument master.
+
+        Stock underlyings resolve to "NSE_EQ|<ISIN>" (e.g. AMBER →
+        NSE_EQ|INE371P01015); index underlyings resolve to "NSE_INDEX|<name>"
+        (e.g. MIDCPNIFTY → NSE_INDEX|NIFTY MID SELECT).  First occurrence wins
+        so a given underlying_symbol maps to one stable key.
+
+        Cached two ways: in-memory (class-level) and via InstrumentCache (Redis
+        when available, in-memory pickle otherwise) so long-lived pipelines
+        don't re-download the ~30MB master every cycle.
+        """
+        if cls._underlying_key_map is not None:
+            return cls._underlying_key_map
+
+        cached = cls._underlying_key_cache.get(cls._UNDERLYING_KEY_CACHE_KEY)
+        if cached:
+            cls._underlying_key_map = dict(cached)
+            return cls._underlying_key_map
+
+        log.info("Downloading Upstox complete instrument master to build underlying_key map…")
+        mapping: dict[str, str] = {}
+        resp = requests.get(_INSTRUMENTS_URL, timeout=60)
+        resp.raise_for_status()
+        data = json.loads(gzip.decompress(resp.content))
+        for item in data:
+            if item.get("segment") != "NSE_FO":
+                continue
+            sym = item.get("underlying_symbol")
+            key = item.get("underlying_key")
+            if sym and key and sym not in mapping:
+                mapping[sym] = key
+        log.info("Built underlying_key map: %d underlyings", len(mapping))
+        cls._underlying_key_map = mapping
+        try:
+            cls._underlying_key_cache.set(
+                cls._UNDERLYING_KEY_CACHE_KEY, list(mapping.items())
+            )
+        except Exception:
+            log.warning("Could not persist underlying_key map to InstrumentCache", exc_info=True)
+        return mapping
+
+    @classmethod
+    def clear_underlying_key_cache(cls) -> None:
+        """Drop the in-memory + persisted underlying_key map (re-download on next use)."""
+        cls._underlying_key_map = None
+        cls._underlying_key_cache.clear(cls._UNDERLYING_KEY_CACHE_KEY)
+
+    def _resolve_instrument_key(self, symbol: str) -> str:
+        """
+        Resolve an underlying trading symbol (e.g. "AMBER", "MIDCPNIFTY") to the
+        instrument_key the /v2/option/* endpoints expect.
+
+        Order:
+          1. Static seed (_INSTRUMENT_KEY_MAP) — indices, instant, no network.
+          2. Downloaded complete-master map — stocks + extra indices.
+          3. Fall back to the raw upper-cased symbol so unmapped underlyings
+             still get a deterministic value logged (and a clear 400 upstream).
+        """
+        up = symbol.upper()
+        if up in _INSTRUMENT_KEY_MAP:
+            return _INSTRUMENT_KEY_MAP[up]
+        try:
+            mapping = self._load_underlying_key_map()
+        except Exception:
+            log.warning("underlying_key map download failed — falling back to raw symbol")
+            return up
+        if up in mapping:
+            return mapping[up]
+        log.warning("underlying %r not in instrument master — passing raw symbol", symbol)
+        return up
+
+    # ── rate-limited HTTP ────────────────────────────────────────────────────
+
+    def _request(self, url: str, params: dict, timeout: int = 10, max_retries: int = 3):
+        """
+        GET with 429 / Retry-After backoff.
+
+        With ~215 underlyings × all expiries (≈900 calls / polling cycle) the
+        2,000-req/30-min ceiling is within reach; a 429 must make the broker
+        self-throttle rather than fail the whole poll cycle.
+        """
+        last_resp = None
+        for attempt in range(max_retries + 1):
+            resp = self._session.get(url, params=params, timeout=timeout)
+            last_resp = resp
+            if resp.status_code == 429 and attempt < max_retries:
+                retry_after = resp.headers.get("Retry-After", "5")
+                try:
+                    wait = int(float(retry_after))
+                except (TypeError, ValueError):
+                    wait = 5
+                log.warning(
+                    "Upstox 429 for %s — backing off %ds (attempt %d/%d)",
+                    params.get("instrument_key"), wait, attempt + 1, max_retries,
+                )
+                time.sleep(wait)
+                continue
+            return resp
+        return last_resp
 
     # ── Broker ABC — required methods ────────────────────────────────────────
 
@@ -165,12 +289,38 @@ class UpstoxAnalyticsBroker(Broker):
     def get_instrument_provider(self) -> InstrumentProvider:
         return self._instrument_provider
 
+    def fetch_option_contracts(self, symbol: str) -> list[str]:
+        """
+        Return sorted ISO expiry strings (YYYY-MM-DD) available for the underlying
+        via GET /v2/option/contract.
+
+        The poller normally derives expiries from the cached instrument master
+        (no API cost); this method is here for callers that want expiries
+        straight from the Upstox option-contracts endpoint.
+        """
+        instrument_key = self._resolve_instrument_key(symbol)
+        try:
+            resp = self._request(
+                _CONTRACT_ENDPOINT,
+                params={"instrument_key": instrument_key},
+            )
+            resp.raise_for_status()
+            data = resp.json().get("data") or []
+            seen: set[str] = {d.get("expiry") for d in data if d.get("expiry")}
+            return sorted(seen)
+        except Exception:
+            log.exception("Upstox analytics contract fetch failed %s", symbol)
+            return []
+
     def fetch_option_chain(self, symbol: str, expiry: str) -> dict:
         """
         Fetch option chain via Upstox Analytics Token.
 
         Args:
-            symbol: Underlying name, e.g. "NIFTY", "BANKNIFTY".
+            symbol: Underlying trading symbol, e.g. "NIFTY", "BANKNIFTY",
+                    "AMBER", "RELIANCE".  Resolved to the instrument_key the
+                    /v2/option/chain endpoint expects (e.g. AMBER →
+                    NSE_EQ|INE371P01015; MIDCPNIFTY → NSE_INDEX|Nifty Mid Select).
             expiry: Expiry date in YYYY-MM-DD format, e.g. "2026-05-29".
 
         Returns:
@@ -181,17 +331,17 @@ class UpstoxAnalyticsBroker(Broker):
             open/high/low fields will be 0 — the /v2/option/chain endpoint
             does not return intraday OHLC for individual strikes.
         """
-        instrument_key = _INSTRUMENT_KEY_MAP.get(symbol.upper(), symbol)
+        instrument_key = self._resolve_instrument_key(symbol)
         try:
-            resp = self._session.get(
+            resp = self._request(
                 _CHAIN_ENDPOINT,
                 params={"instrument_key": instrument_key, "expiry_date": expiry},
-                timeout=10,
             )
             resp.raise_for_status()
             return _normalize_chain(resp.json())
         except requests.HTTPError as exc:
-            log.error("Upstox analytics chain HTTP error %s %s: %s", symbol, expiry, exc)
+            log.error("Upstox analytics chain HTTP error %s %s (%s): %s",
+                     symbol, expiry, instrument_key, exc)
             return {"spot_price": 0.0, "strikes": []}
         except Exception as exc:
             log.exception("Upstox analytics chain fetch failed %s %s", symbol, expiry)

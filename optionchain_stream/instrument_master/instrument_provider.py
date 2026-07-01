@@ -18,6 +18,20 @@ class InstrumentProvider(ABC):
     def get_instrument_by_symbol(self, symbol: str) -> Instrument:
         pass
 
+    def _matches_underlying(self, inst, underlying: str) -> bool:
+        """True if ``inst`` belongs to the given F&O underlying.
+
+        Matches by ``underlying_symbol`` (the listed trading symbol most callers
+        pass, e.g. "RELIANCE") and falls back to ``name`` for brokers/providers
+        that pre-normalise ``name`` to the underlying (index options such as
+        "NIFTY").  Stock option rows from Upstox carry the company's full name
+        in ``name`` ("RELIANCE INDUSTRIES LTD") so the underlying_symbol match
+        is what makes stock F&O work.
+        """
+        return inst.underlying_symbol == underlying or (
+            not inst.underlying_symbol and inst.name == underlying
+        )
+
     def get_active_expiries(self, underlying: str) -> list[str]:
         """
         Return sorted ISO-date strings of future expiries for the given underlying.
@@ -29,7 +43,7 @@ class InstrumentProvider(ABC):
         seen: set[str] = set()
         for inst in instruments:
             if (
-                inst.name == underlying
+                self._matches_underlying(inst, underlying)
                 and inst.instrument_type in ('CE', 'PE')
                 and inst.expiry is not None
                 and inst.expiry.date() >= today
@@ -44,6 +58,6 @@ class InstrumentProvider(ABC):
         """
         instruments = self.fetch_instruments()
         for inst in instruments:
-            if inst.name == underlying and inst.instrument_type in ('CE', 'PE'):
+            if self._matches_underlying(inst, underlying) and inst.instrument_type in ('CE', 'PE'):
                 return inst.lot_size
         return 0

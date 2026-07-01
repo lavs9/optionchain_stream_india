@@ -15,6 +15,7 @@ class Instrument:
     instrument_type: str # CE/PE/FUT/EQ
     broker_token: str # Broker specific token
     tick_size: float
+    underlying_symbol: str = ""  # FPO underlying trading symbol e.g. "RELIANCE" (Upstox); "" when not provided
 
 @dataclass
 class Tick:

@@ -220,6 +220,18 @@ daily OAuth login, no redirect URI, no client secret. Token is valid for 1 year.
 **Limitations:** read-only (no orders/positions), no WebSocket streaming,
 `open`/`high`/`low` fields on rows are 0 (not returned by the API endpoint).
 
+**Underlying resolution (all NSE F&O stocks + indices supported):** the broker
+auto-resolves every `underlying` trading symbol (e.g. `AMBER`, `RELIANCE`,
+`MIDCPNIFTY`, `NIFTY`) to the `instrument_key` the `/v2/option/chain` endpoint
+expects — stocks → `NSE_EQ|<ISIN>`, indices → `NSE_INDEX|<name>`.  The map is
+built once from the Upstox complete instrument master
+(`complete.json.gz`) and cached (in-memory + Redis via `InstrumentCache`, 1h
+TTL).  Indices resolve from an in-memory seed (no network); stock resolution
+triggers a one-time ~30MB download (then cached).  `GET /v2/option/contract`
+is also exposed via `broker.fetch_option_contracts(symbol)` for API-derived
+expiries.  429 responses are retried with `Retry-After` backoff so the ~900
+calls/cycle load stays under the 2,000-req/30-min ceiling.
+
 ```python
 from optionchain_stream.broker_coordinator import BrokerCoordinator
 from optionchain_stream.poller import OptionChainPoller
