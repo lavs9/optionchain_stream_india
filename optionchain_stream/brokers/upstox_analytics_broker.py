@@ -54,7 +54,7 @@ _INSTRUMENT_KEY_MAP: dict[str, str] = {
     "NIFTY":      "NSE_INDEX|Nifty 50",
     "BANKNIFTY":  "NSE_INDEX|Nifty Bank",
     "FINNIFTY":   "NSE_INDEX|Nifty Fin Service",
-    "MIDCPNIFTY": "NSE_INDEX|Nifty Mid Select",
+    "MIDCPNIFTY": "NSE_INDEX|NIFTY MID SELECT",
     "SENSEX":     "BSE_INDEX|SENSEX",
     "BANKEX":     "BSE_INDEX|BANKEX",
 }
@@ -320,7 +320,7 @@ class UpstoxAnalyticsBroker(Broker):
             symbol: Underlying trading symbol, e.g. "NIFTY", "BANKNIFTY",
                     "AMBER", "RELIANCE".  Resolved to the instrument_key the
                     /v2/option/chain endpoint expects (e.g. AMBER →
-                    NSE_EQ|INE371P01015; MIDCPNIFTY → NSE_INDEX|Nifty Mid Select).
+                    NSE_EQ|INE371P01015; MIDCPNIFTY → NSE_INDEX|NIFTY MID SELECT).
             expiry: Expiry date in YYYY-MM-DD format, e.g. "2026-05-29".
 
         Returns:

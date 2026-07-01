@@ -137,7 +137,7 @@ def test_fetch_option_chain_unknown_symbol_passes_as_is():
         broker.fetch_option_chain("MIDCPNIFTY", "2026-05-29")
 
     call_params = mock_get.call_args[1]["params"]
-    assert call_params["instrument_key"] == "NSE_INDEX|Nifty Mid Select"
+    assert call_params["instrument_key"] == "NSE_INDEX|NIFTY MID SELECT"
 
 
 def test_fetch_option_chain_http_error_returns_empty():
@@ -229,7 +229,7 @@ def test_resolve_index_uses_static_seed_no_network():
     # NIFTY is in the static _INSTRUMENT_KEY_MAP; no download should happen.
     with patch.object(UpstoxAnalyticsBroker, "_load_underlying_key_map") as m:
         assert broker._resolve_instrument_key("NIFTY") == "NSE_INDEX|Nifty 50"
-        assert broker._resolve_instrument_key("MIDCPNIFTY") == "NSE_INDEX|Nifty Mid Select"
+        assert broker._resolve_instrument_key("MIDCPNIFTY") == "NSE_INDEX|NIFTY MID SELECT"
     assert not m.called  # static seed hit → downloaded map never consulted
 
 
