@@ -18,10 +18,13 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from fyers_apiv3 import fyersModel
 
-# Your Fyers credentials
-APP_ID = "287HSZ2173-100"
-SECRET_ID = "8CFHG0D64R"
-REDIRECT_URI = "https://webhook.site/f5dee680-2a7f-4052-b807-1cc98af79083"
+# Your Fyers credentials — read from env, never hardcode
+APP_ID = os.getenv("FYERS_CLIENT_ID")
+SECRET_ID = os.getenv("FYERS_SECRET_ID")
+REDIRECT_URI = os.getenv("FYERS_REDIRECT_URI")
+
+if not all([APP_ID, SECRET_ID, REDIRECT_URI]):
+    sys.exit("Set FYERS_CLIENT_ID, FYERS_SECRET_ID, and FYERS_REDIRECT_URI environment variables before running this script.")
 
 def generate_auth_url():
     """Generate the authorization URL for Fyers login"""

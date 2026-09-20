@@ -3,14 +3,22 @@ Quick Fyers Access Token Generator
 """
 
 from fyers_apiv3 import fyersModel
+import os
+import sys
 
-# Credentials
-APP_ID = "287HSZ2173-100"
-SECRET_ID = "8CFHG0D64R"
-REDIRECT_URI = "https://webhook.site/f5dee680-2a7f-4052-b807-1cc98af79083"
+# Credentials — read from env, never hardcode
+APP_ID = os.getenv("FYERS_CLIENT_ID")
+SECRET_ID = os.getenv("FYERS_SECRET_ID")
+REDIRECT_URI = os.getenv("FYERS_REDIRECT_URI")
 
-# Auth code from user
-AUTH_CODE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBfaWQiOiIyODdIU1oyMTczIiwidXVpZCI6IjkyNDM0NmM0Njg5NDQ3MzNiYThlMTNjZDYyNTgxYTk5IiwiaXBBZGRyIjoiIiwibm9uY2UiOiIiLCJzY29wZSI6IiIsImRpc3BsYXlfbmFtZSI6IkZBQTE3NTgzIiwib21zIjoiSzEiLCJoc21fa2V5IjoiMjRiNGU2NDc2MWFiZjk3OTY3YTI4NjBlOGI5MTBiMjE2ZTNhZDlhMjhkZjhmZDY2M2NkZTdlOTYiLCJpc0RkcGlFbmFibGVkIjoiTiIsImlzTXRmRW5hYmxlZCI6Ik4iLCJhdWQiOiJbXCJkOjFcIl0iLCJleHAiOjE3NjUxOTgxODMsImlhdCI6MTc2NTE2ODE4MywiaXNzIjoiYXBpLmxvZ2luLmZ5ZXJzLmluIiwibmJmIjoxNzY1MTY4MTgzLCJzdWIiOiJhdXRoX2NvZGUifQ.KPMEL10dpQWt09mYkGruPWhIfc-OBzEv9QPGjKYQdVk"
+# Auth code — one-time, from the Fyers OAuth redirect; pass as first CLI arg
+AUTH_CODE = sys.argv[1] if len(sys.argv) > 1 else os.getenv("FYERS_AUTH_CODE")
+
+if not all([APP_ID, SECRET_ID, REDIRECT_URI, AUTH_CODE]):
+    sys.exit(
+        "Set FYERS_CLIENT_ID, FYERS_SECRET_ID, FYERS_REDIRECT_URI env vars, "
+        "and pass the auth code as the first argument (or FYERS_AUTH_CODE env var)."
+    )
 
 try:
     # Create session

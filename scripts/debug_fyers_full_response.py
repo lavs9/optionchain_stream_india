@@ -4,9 +4,13 @@ Debug full Fyers option chain response structure
 
 from fyers_apiv3 import fyersModel
 import json
+import os
+import sys
 
-CLIENT_ID = "287HSZ2173-100"
-ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiZDoxIl0sImF0X2hhc2giOiJnQUFBQUFCcE5sUnRkMjdKM0RJNFBxTExZUnRLTlVJRUxlaUtyRV9EWGUxM3I2VHBnSkpSMlM2Y3RGRXZhWF84Ti0wdmxvdzNVRFFrSnFHSmZGS0t6UWNBZXVEb1dfNlc3WXdVZy1aa2hlVGktd203eDJpUHBYWT0iLCJkaXNwbGF5X25hbWUiOiIiLCJvbXMiOiJLMSIsImhzbV9rZXkiOiIyNGI0ZTY0NzYxYWJmOTc5NjdhMjg2MGU4YjkxMGIyMTZlM2FkOWEyOGRmOGZkNjYzY2RlN2U5NiIsImlzRGRwaUVuYWJsZWQiOiJOIiwiaXNNdGZFbmFibGVkIjoiTiIsImZ5X2lkIjoiRkFBMTc1ODMiLCJhcHBUeXBlIjoxMDAsImV4cCI6MTc2NTI0MDIwMCwiaWF0IjoxNzY1MTY4MjM3LCJpc3MiOiJhcGkuZnllcnMuaW4iLCJuYmYiOjE3NjUxNjgyMzcsInN1YiI6ImFjY2Vzc190b2tlbiJ9.q6D_4Pmrx_W9XZU7h8AYZZayMXyQQ6SJHt-08KDRap0"
+CLIENT_ID = os.getenv("FYERS_CLIENT_ID")
+ACCESS_TOKEN = os.getenv("FYERS_ACCESS_TOKEN")
+if not CLIENT_ID or not ACCESS_TOKEN:
+    sys.exit("Set FYERS_CLIENT_ID and FYERS_ACCESS_TOKEN environment variables before running this script.")
 
 fyers = fyersModel.FyersModel(client_id=CLIENT_ID, is_async=False, token=ACCESS_TOKEN, log_path="")
 

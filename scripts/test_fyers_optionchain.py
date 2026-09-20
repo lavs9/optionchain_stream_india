@@ -12,9 +12,11 @@ from optionchain_stream.brokers.fyers_broker import FyersBroker
 
 logging.basicConfig(level=logging.INFO)
 
-# Credentials  
-CLIENT_ID = "287HSZ2173-100"
-ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiZDoxIl0sImF0X2hhc2giOiJnQUFBQUFCcE5rZlExektLY3h4cl9MZ3M4Vms3d3p2dTRCd2tDUl93WUdGalotT1Y0dVFxQUZhTmtuZkVPbGpxVEJPaXE2VmhSbDl0RlhMczR5dWtrckUxWEI3bFlFY3hGYnJEYlJTb2xJSk45ZlI4U2xtcHNWUT0iLCJkaXNwbGF5X25hbWUiOiIiLCJvbXMiOiJLMSIsImhzbV9rZXkiOiIyNGI0ZTY0NzYxYWJmOTc5NjdhMjg2MGU4YjkxMGIyMTZlM2FkOWEyOGRmOGZkNjYzY2RlN2U5NiIsImlzRGRwaUVuYWJsZWQiOiJOIiwiaXNNdGZFbmFibGVkIjoiTiIsImZ5X2lkIjoiRkFBMTc1ODMiLCJhcHBUeXBlIjoxMDAsImV4cCI6MTc2NTI0MDIwMCwiaWF0IjoxNjUxNjUwMDgsImlzcyI6ImFwaS5meWVycy5pbiIsIm5iZiI6MTc2NTE2NTAwOCwic3ViIjoiYWNjZXNzX3Rva2VuIn0.Q0gaKeWPlQxJQdvUhj-zoEM8MHStCeAjwpEI9QfqT-M"
+# Credentials
+CLIENT_ID = os.getenv("FYERS_CLIENT_ID")
+ACCESS_TOKEN = os.getenv("FYERS_ACCESS_TOKEN")
+if not CLIENT_ID or not ACCESS_TOKEN:
+    sys.exit("Set FYERS_CLIENT_ID and FYERS_ACCESS_TOKEN environment variables before running this script.")
 
 print("=" * 80)
 print("FYERS OPTION CHAIN TEST")

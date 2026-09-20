@@ -3,9 +3,13 @@ Test Fyers quotes API directly
 """
 
 from fyers_apiv3 import fyersModel
+import os
+import sys
 
-CLIENT_ID = "287HSZ2173-100"
-ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBfaWQiOiIyODdIU1oyMTczIiwidXVpZCI6ImQzZjUxM2I4YTRhMzRiMjc5MzZkNGNlOWM2ODViNTJkIiwiaXBBZGRyIjoiIiwibm9uY2UiOiIiLCJzY29wZSI6IiIsImRpc3BsYXlfbmFtZSI6IkZBQTE3NTgzIiwib21zIjoiSzEiLCJoc21fa2V5IjoiMjRiNGU2NDc2MWFiZjk3OTY3YTI4NjBlOGI5MTBiMjE2ZTNhZDlhMjhkZjhmZDY2M2NkZTdlOTYiLCJpc0RkcGlFbmFibGVkIjoiTiIsImlzTXRmRW5hYmxlZCI6Ik4iLCJhdWQiOiJbXCJkOjFcIl0iLCJleHAiOjE3NjUxOTQ4NjIsImlhdCI6MTc2NTE2NDg2MiwiaXNzIjoiYXBpLmxvZ2luLmZ5ZXJzLmluIiwibmJmIjoxNzY1MTY0ODYyLCJzdWIiOiJhdXRoX2NvZGUifQ.wSLz2EPIe-jGrU9Sl6R9gtdkBZ4hJzZseCdLD6VPHUo"
+CLIENT_ID = os.getenv("FYERS_CLIENT_ID")
+ACCESS_TOKEN = os.getenv("FYERS_ACCESS_TOKEN")
+if not CLIENT_ID or not ACCESS_TOKEN:
+    sys.exit("Set FYERS_CLIENT_ID and FYERS_ACCESS_TOKEN environment variables before running this script.")
 
 print("Testing Fyers Quotes API...")
 print("="*80)

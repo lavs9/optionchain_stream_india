@@ -9,8 +9,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from optionchain_stream.brokers.fyers_broker import FyersBroker
 import json
 
-CLIENT_ID = "287HSZ2173-100"
-ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiZDoxIl0sImF0X2hhc2giOiJnQUFBQUFCcE5rNDNuRnh4dkRHNnJSZ1diTkJzUFFXd1c5TWRSa1NLemhQV1VKcWtERWlJTlYzRGRfRUdPcVgtdGdhR1ZlMi03MUFFR0x6OS1xMHBqS3ptWXZ6MTlKdTBOUVZRLXBFUzNnS19BM3pMeEVDemgtUT0iLCJkaXNwbGF5X25hbWUiOiIiLCJvbXMiOiJLMSIsImhzbV9rZXkiOiIyNGI0ZTY0NzYxYWJmOTc5NjdhMjg2MGU4YjkxMGIyMTZlM2FkOWEyOGRmOGZkNjYzY2RlN2U5NiIsImlzRGRwaUVuYWJsZWQiOiJOIiwiaXNNdGZFbmFibGVkIjoiTiIsImZ5X2lkIjoiRkFBMTc1ODMiLCJhcHBUeXBlIjoxMDAsImV4cCI6MTc2NTI0MDIwMCwiaWF0IjoxNzY1MTY2NjQ3LCJpc3MiOiJhcGkuZnllcnMuaW4iLCJuYmYiOjE3NjUxNjY2NDcsInN1YiI6ImFjY2Vzc190b2tlbiJ9.3x42LClzdAHWphAfR_cFftmZXIemmYd2ekymUGMfS3g"
+CLIENT_ID = os.getenv("FYERS_CLIENT_ID")
+ACCESS_TOKEN = os.getenv("FYERS_ACCESS_TOKEN")
+if not CLIENT_ID or not ACCESS_TOKEN:
+    sys.exit("Set FYERS_CLIENT_ID and FYERS_ACCESS_TOKEN environment variables before running this script.")
 
 print("Testing Fyers Native Option Chain API...")
 print("="*80)
