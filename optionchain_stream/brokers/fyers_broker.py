@@ -74,13 +74,21 @@ class FyersBroker(Broker):
             # Create Fyers model
             fyers = fyersModel.FyersModel(client_id=self.client_id, is_async=False, token=self.access_token, log_path="")
             
-            # Map symbol to Fyers format
-            if symbol == "NIFTY":
-                fyers_symbol = "NSE:NIFTY50-INDEX"
-            elif symbol == "BANKNIFTY":
-                fyers_symbol = "NSE:NIFTYBANK-INDEX"
+            # Map symbol to Fyers format. Indices use -INDEX on their own
+            # exchange (NSE or BSE); anything else is treated as an equity
+            # underlying on NSE, which needs -EQ, not -INDEX.
+            INDEX_SYMBOLS = {
+                "NIFTY": "NSE:NIFTY50-INDEX",
+                "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
+                "FINNIFTY": "NSE:FINNIFTY-INDEX",
+                "MIDCPNIFTY": "NSE:MIDCPNIFTY-INDEX",
+                "SENSEX": "BSE:SENSEX-INDEX",
+                "BANKEX": "BSE:BANKEX-INDEX",
+            }
+            if symbol in INDEX_SYMBOLS:
+                fyers_symbol = INDEX_SYMBOLS[symbol]
             else:
-                fyers_symbol = f"NSE:{symbol}-INDEX"
+                fyers_symbol = f"NSE:{symbol}-EQ"
             
             # Convert expiry to timestamp if provided
             expiry_timestamp = ""
