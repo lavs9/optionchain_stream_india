@@ -13,8 +13,9 @@ class FyersBroker(Broker):
         self.access_token = access_token
         self.instrument_provider = FyersInstrumentProvider()
         self.ws = None
-        self.callbacks = []
+        self._tick_callbacks: List[Callable[[List[Tick]], None]] = []
         self.subscribed_tokens = []
+        self.logger = logging.getLogger(__name__)
 
     def authenticate(self):
         # Fyers auth is implicit via access_token passed to socket
@@ -25,38 +26,83 @@ class FyersBroker(Broker):
 
     def subscribe(self, tokens: List[str], mode: str = "full"):
         # Fyers requires symbols in format "NSE:NIFTY..." or "MCX:GOLD..."
-        # We need to map tokens to symbols using the provider
-        
+        # Accepts either our internal instrument tokens (resolved via the
+        # instrument provider) or raw Fyers symbol strings directly.
         symbols = []
         for token in tokens:
             inst = self.instrument_provider.get_instrument_by_token(token)
-            if inst:
-                symbols.append(inst.symbol)
-        
-        if symbols:
+            symbols.append(inst.symbol if inst else token)
+
+        if symbols and self.ws:
             self.subscribed_tokens.extend(symbols)
-            if self.ws:
-                # data_type: SymbolData (Full), DepthUpdate (Depth)
-                # Fyers uses "SymbolData" for full mode
-                self.ws.subscribe(symbols=symbols, data_type="SymbolData")
+            data_type = "SymbolUpdate" if mode == "full" else "DepthUpdate"
+            self.ws.subscribe(symbols=symbols, data_type=data_type)
+
+    def unsubscribe(self, tokens: List[str]):
+        symbols = []
+        for token in tokens:
+            inst = self.instrument_provider.get_instrument_by_token(token)
+            symbols.append(inst.symbol if inst else token)
+        if symbols and self.ws:
+            self.ws.unsubscribe(symbols=symbols, data_type="SymbolUpdate")
+            for s in symbols:
+                if s in self.subscribed_tokens:
+                    self.subscribed_tokens.remove(s)
 
     def on_tick(self, callback: Callable[[List[Tick]], None]):
-        # self.ws.on_message = lambda msg: callback([self._normalize_tick(msg)])
-        pass
+        self._tick_callbacks.append(callback)
+
+    def _on_message(self, message: Dict):
+        # Non-tick control/ack frames (type: cn/ful/sub/...) come through the
+        # same on_message callback as real ticks. Only type "sf" is a symbol
+        # feed update worth normalizing — skip everything else.
+        if message.get('type') != 'sf':
+            self.logger.debug(f"Ignoring non-tick Fyers WS message: {message}")
+            return
+        try:
+            tick = self._normalize_tick(message)
+        except Exception:
+            self.logger.exception(f"Failed to normalize Fyers WS message: {message}")
+            return
+        for callback in self._tick_callbacks:
+            callback([tick])
+
+    def _on_error(self, message):
+        self.logger.error(f"Fyers WS error: {message}")
+
+    def _on_connect(self):
+        self.logger.info("Fyers WS connected")
+
+    def _on_close(self, message):
+        self.logger.warning(f"Fyers WS closed: {message}")
 
     def connect(self):
-        # self.ws = FyersWebsocket(...)
-        # self.ws.connect()
-        pass
+        combined_token = f"{self.client_id}:{self.access_token}"
+        self.ws = data_ws.FyersDataSocket(
+            access_token=combined_token,
+            log_path="",
+            litemode=False,
+            write_to_file=False,
+            reconnect=True,
+            on_connect=self._on_connect,
+            on_close=self._on_close,
+            on_error=self._on_error,
+            on_message=self._on_message,
+        )
+        self.ws.connect()
 
     def _normalize_tick(self, data: Dict) -> Tick:
         return Tick(
-            token=0, # Map back from symbol
-            timestamp=datetime.fromtimestamp(data.get('timestamp', 0)),
+            token=data.get('fy_token', data.get('symbol', '')),
+            timestamp=datetime.fromtimestamp(data.get('last_traded_time', 0)) if data.get('last_traded_time') else datetime.now(),
             last_price=data.get('ltp', 0.0),
             volume=data.get('vol_traded_today', 0),
             oi=data.get('oi', 0),
-            change=0.0
+            change=data.get('ch', 0.0),
+            bid_price=data.get('bid_price', 0.0),
+            ask_price=data.get('ask_price', 0.0),
+            bid_qty=data.get('bid_size', 0),
+            ask_qty=data.get('ask_size', 0),
         )
     
     def fetch_option_chain(self, symbol: str, expiry: str) -> Dict[str, Any]:
