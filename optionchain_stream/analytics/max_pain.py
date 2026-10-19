@@ -20,8 +20,8 @@ def compute_max_pain(rows: list[OptionChainRow]) -> float | None:
 
     for s in strikes:
         pain = sum(
-            max(0.0, r.strike - s) * r.ce_oi * r.lotsize
-            + max(0.0, s - r.strike) * r.pe_oi * r.lotsize
+            max(0.0, r.strike - s) * (r.ce_oi or 0) * r.lotsize
+            + max(0.0, s - r.strike) * (r.pe_oi or 0) * r.lotsize
             for r in rows
         )
         if pain < min_pain:

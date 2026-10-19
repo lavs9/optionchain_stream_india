@@ -14,11 +14,11 @@ def compute_oi_zones(rows: list[OptionChainRow], top_n: int = 3) -> dict:
     if not rows:
         return {"resistance_strikes": [], "support_strikes": [], "chain_pcr": 0.0}
 
-    sorted_by_ce = sorted(rows, key=lambda r: r.ce_oi, reverse=True)
-    sorted_by_pe = sorted(rows, key=lambda r: r.pe_oi, reverse=True)
+    sorted_by_ce = sorted(rows, key=lambda r: r.ce_oi or 0, reverse=True)
+    sorted_by_pe = sorted(rows, key=lambda r: r.pe_oi or 0, reverse=True)
 
-    total_ce = sum(r.ce_oi for r in rows)
-    total_pe = sum(r.pe_oi for r in rows)
+    total_ce = sum(r.ce_oi or 0 for r in rows)
+    total_pe = sum(r.pe_oi or 0 for r in rows)
     chain_pcr = total_pe / total_ce if total_ce > 0 else 0.0
 
     return {

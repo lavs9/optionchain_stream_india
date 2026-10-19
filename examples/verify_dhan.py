@@ -33,7 +33,7 @@ def main():
     # Find MCX instrument first (as it might be open late)
     target_tokens = []
     for inst in instruments:
-        if inst.exchange == "MCX" and "FUT" in inst.instrument_type:
+        if inst.exchange == "MCX_COMM" and "FUT" in inst.instrument_type:
              target_tokens.append(inst.token)
              print(f"Found MCX Token: {inst.token} ({inst.symbol})")
              if len(target_tokens) >= 5:

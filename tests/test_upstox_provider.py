@@ -4,9 +4,13 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from optionchain_stream.instrument_master.upstox_provider import UpstoxInstrumentProvider
 import logging
+from datetime import date
+
+import pytest
 
 logging.basicConfig(level=logging.INFO)
 
+@pytest.mark.integration
 def test_provider():
     provider = UpstoxInstrumentProvider()
     print("Fetching instruments...")
@@ -74,7 +78,7 @@ def test_get_active_expiries_matches_underlying_symbol_for_stocks():
         _stock_option_inst("RELIANCE", "2026-09-29"),
     ]
     with patch.object(provider, "fetch_instruments", return_value=insts):
-        expiries = provider.get_active_expiries("CROMPTON")
+        expiries = provider.get_active_expiries("CROMPTON", today=date(2026, 9, 1))
     assert expiries == ["2026-09-29", "2026-10-29"]
 
 
@@ -99,7 +103,7 @@ def test_get_active_expiries_falls_back_to_name_when_underlying_symbol_empty():
         broker_token="t", tick_size=0.05, underlying_symbol="",
     )
     with patch.object(provider, "fetch_instruments", return_value=[inst]):
-        assert provider.get_active_expiries("NIFTY") == ["2026-09-29"]
+        assert provider.get_active_expiries("NIFTY", today=date(2026, 9, 1)) == ["2026-09-29"]
 
 
 if __name__ == "__main__":

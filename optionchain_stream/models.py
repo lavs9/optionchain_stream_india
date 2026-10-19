@@ -16,6 +16,7 @@ class Instrument:
     broker_token: str # Broker specific token
     tick_size: float
     underlying_symbol: str = ""  # FPO underlying trading symbol e.g. "RELIANCE" (Upstox); "" when not provided
+    exch_id: str = ""            # listing exchange ("NSE"/"BSE"/"MCX") when the provider knows it (Dhan)
 
 @dataclass
 class Tick:
@@ -47,8 +48,8 @@ class OptionChainRow:
     ce_low:        float
     ce_prev_close: float
     ce_volume:     int
-    ce_oi:         int
-    ce_iv:         float
+    ce_oi:         Optional[int]    # None when the broker sent no OI
+    ce_iv:         Optional[float]  # None when the broker sent no IV
     ce_delta:      float
     ce_theta:      float
     ce_gamma:      float
@@ -62,8 +63,8 @@ class OptionChainRow:
     pe_low:        float
     pe_prev_close: float
     pe_volume:     int
-    pe_oi:         int
-    pe_iv:         float
+    pe_oi:         Optional[int]    # None when the broker sent no OI
+    pe_iv:         Optional[float]  # None when the broker sent no IV
     pe_delta:      float
     pe_theta:      float
     pe_gamma:      float
@@ -87,8 +88,8 @@ class OptionChainRow:
     # tianjin-6r0: per-strike PCR
     strike_pcr: Optional[float] = None
     # tianjin-bjh: delta OI per cycle
-    ce_oi_change: int = 0
-    pe_oi_change: int = 0
+    ce_oi_change: Optional[int] = 0
+    pe_oi_change: Optional[int] = 0
 
 
 @dataclass

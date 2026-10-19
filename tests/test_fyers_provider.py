@@ -5,8 +5,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from optionchain_stream.instrument_master.fyers_provider import FyersInstrumentProvider
 import logging
 
+import pytest
+
 logging.basicConfig(level=logging.INFO)
 
+@pytest.mark.integration
 def test_provider():
     provider = FyersInstrumentProvider()
     print("Fetching instruments...")

@@ -180,10 +180,12 @@ def test_fetch_chain_compatible_with_to_wide_rows():
 # ── Integration test (live Zerodha API) ───────────────────────────────────────
 
 @pytest.mark.integration
+@pytest.mark.skipif(not (os.environ.get("ZERODHA_API_KEY") and os.environ.get("ZERODHA_ACCESS_TOKEN")),
+                    reason="live Zerodha test: set ZERODHA_API_KEY and ZERODHA_ACCESS_TOKEN")
 def test_integration_fetch_nifty_chain():
     from kiteconnect import KiteConnect
-    api_key = os.environ.get("ZERODHA_API_KEY", "qtq5zs1vk4lvfct6")
-    access_token = os.environ.get("ZERODHA_ACCESS_TOKEN", "oUVa6cz6S0LrneGxrkpO0xkvfXfT7pJ1")
+    api_key = os.environ["ZERODHA_API_KEY"]
+    access_token = os.environ["ZERODHA_ACCESS_TOKEN"]
 
     kite = KiteConnect(api_key=api_key)
     kite.set_access_token(access_token)

@@ -24,7 +24,7 @@ If you are an AI assistant helping a developer with this repository, start with 
 | **Upstox** (OAuth) | Yes | Yes | Yes | Daily token; streaming + trading. 2000 instrument limit per account. |
 | **Upstox** (Analytics Token) | No | Yes | Yes | **1-year token, no OAuth flow.** Read-only polling; no streaming. |
 | **Fyers** | Partial | Yes | Yes | Native `optionchain()` API. 50 strikes per side. WebSocket in progress. |
-| **Dhan** | Yes | Partial | No | REST API works. WebSocket needs paid subscription. |
+| **Dhan** | Yes | Yes | IV only | v2 WebSocket feed (multi-connection, reconnect, 5-level depth) → 1-min chain snapshots + Black-76 IV. See [docs/dhan_feed.md](docs/dhan_feed.md). |
 | **Zerodha** | Yes | Partial | No | Chain reconstruction from tick data. |
 
 ### Core Capabilities
@@ -49,10 +49,12 @@ cd optionchain_stream_india
 python3 -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
-pip install -r requirements.txt
+# Core only (models, formatter, Dhan decoder, chain assembler, IV): needs just `requests`
+pip install -e .
 
-# Zerodha extras (optional)
-pip install -e ".[zerodha]"
+# Broker SDKs are optional extras: dhan, upstox, fyers, zerodha, redis, clickhouse, s3, all
+pip install -e ".[dhan]"
+pip install -e ".[all,test]" && pytest     # integration tests are deselected by default
 ```
 
 ---

@@ -187,3 +187,18 @@ def test_malformed_strike_does_not_raise():
                         timestamp=1716000000, lotsize=50)
     # Should not raise; returns whatever rows it can (may be empty or partial)
     assert isinstance(rows, list)
+
+
+# ── Missing OI / IV stay None (never 0) ───────────────────────────────────────
+
+def test_missing_oi_and_iv_are_none_not_zero():
+    resp = _clean_response()
+    ce = resp['strikes'][0]['call_options']
+    del ce['oi']
+    ce['option_greeks'] = {}
+    rows = to_wide_rows(resp, underlying="NIFTY", expiry="29MAY26",
+                        timestamp=1716000000, lotsize=50)
+    row = rows[0]
+    assert row.ce_oi is None and row.ce_iv is None
+    assert row.pe_oi == 70000 and row.pe_iv == 0.20
+    assert row.quality_flag != 0

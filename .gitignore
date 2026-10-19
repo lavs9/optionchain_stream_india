@@ -64,3 +64,5 @@ htmlcov/
 
 # Streamlit secrets (IMPORTANT!)
 .streamlit/secrets.toml
+# test fixtures are committed
+!tests/fixtures/*.csv
