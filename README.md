@@ -24,7 +24,7 @@ If you are an AI assistant helping a developer with this repository, start with 
 | **Upstox** (OAuth) | Yes | Yes | Yes | Daily token; streaming + trading. 2000 instrument limit per account. |
 | **Upstox** (Analytics Token) | No | Yes | Yes | **1-year token, no OAuth flow.** Read-only polling; no streaming. |
 | **Fyers** | Partial | Yes | Yes | Native `optionchain()` API. 50 strikes per side. WebSocket in progress. |
-| **Dhan** | Yes | Yes | IV only | v2 WebSocket feed (multi-connection, reconnect, 5-level depth) → 1-min chain snapshots + Black-76 IV. See [docs/dhan_feed.md](docs/dhan_feed.md). |
+| **Dhan** | Yes | Yes | IV only | v2 WebSocket feed (multi-connection, reconnect) → 1-min chain snapshots (best bid/ask + qty) + Black-76 IV. See [docs/dhan_feed.md](docs/dhan_feed.md). |
 | **Zerodha** | Yes | Partial | No | Chain reconstruction from tick data. |
 
 ### Core Capabilities

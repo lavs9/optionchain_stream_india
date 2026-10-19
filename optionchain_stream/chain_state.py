@@ -65,25 +65,14 @@ class LegSnapshot:
     day_close: Optional[float] = None
     prev_close: Optional[float] = None
     prev_oi: Optional[int] = None          # prev-close packet bytes 12-15 (encoding unverified)
-    depth: Optional[tuple] = None          # 5 x packets.DepthLevel (Full mode only)
+    # Best bid / ask only (level 1 of the Full-mode depth; option chains carry best only).
+    # None in Quote/Ticker mode (no depth sent). Values are as sent: 0 = no order at level 1.
+    bid: Optional[float] = None
+    ask: Optional[float] = None
+    bid_qty: Optional[int] = None
+    ask_qty: Optional[int] = None
     last_packet_at: Optional[float] = None  # wall clock (epoch s) of the last packet applied
     packets: int = 0
-
-    @property
-    def bid(self) -> Optional[float]:
-        return self.depth[0].bid_price if self.depth else None
-
-    @property
-    def ask(self) -> Optional[float]:
-        return self.depth[0].ask_price if self.depth else None
-
-    @property
-    def bid_qty(self) -> Optional[int]:
-        return self.depth[0].bid_qty if self.depth else None
-
-    @property
-    def ask_qty(self) -> Optional[int]:
-        return self.depth[0].ask_qty if self.depth else None
 
     @property
     def last_trade_utc(self) -> Optional[_dt.datetime]:
@@ -166,8 +155,12 @@ class ChainAssembler:
         elif isinstance(pkt, P.FullPacket):
             for n in ("ltp", "ltq", "ltt", "atp", "volume", "total_buy_qty", "total_sell_qty",
                       "oi", "oi_day_high", "oi_day_low", "day_open", "day_high", "day_low",
-                      "day_close", "depth"):
+                      "day_close"):
                 setattr(leg, n, getattr(pkt, n))
+            if pkt.depth:
+                best = pkt.depth[0]
+                leg.bid, leg.ask = best.bid_price, best.ask_price
+                leg.bid_qty, leg.ask_qty = best.bid_qty, best.ask_qty
         elif isinstance(pkt, P.QuotePacket):
             for n in ("ltp", "ltq", "ltt", "atp", "volume", "total_buy_qty", "total_sell_qty",
                       "day_open", "day_high", "day_low", "day_close"):

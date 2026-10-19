@@ -48,6 +48,7 @@ def test_snapshot_is_vendor_raw_and_none_when_missing():
     ce = es.strikes[0].ce
     assert ce.ltp == pytest.approx(120.25) and ce.volume == 90000 and ce.oi == 500000
     assert ce.bid == pytest.approx(120.0) and ce.ask == pytest.approx(120.5) and ce.bid_qty == 750
+    assert ce.ask_qty == 600 and not hasattr(ce, "depth")   # level 1 only
     assert ce.prev_close == pytest.approx(110.0) and ce.prev_oi == 480000
     assert ce.last_packet_at == 1000.0 and ce.packets == 2
     k2 = es.strikes[1]
@@ -65,7 +66,7 @@ def test_quote_mode_leg_has_no_depth():
                                                volume=400)))
     a.on_packet(P.decode_packet(P.encode_oi(P.BSE_FNO, 5, 2500)))
     leg = a.snapshot().get("SENSEX", EXP).strikes[0].ce
-    assert leg.ltp == pytest.approx(300.0) and leg.oi == 2500 and leg.depth is None
+    assert leg.ltp == pytest.approx(300.0) and leg.oi == 2500
     assert leg.bid is None and leg.ask is None
 
 
