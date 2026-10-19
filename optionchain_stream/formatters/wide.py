@@ -12,8 +12,17 @@ _ATM_THRESHOLD = 0.002  # within 0.2% of spot counts as ATM
 
 
 def _extract_greeks(side: dict) -> dict:
+    """IV is None when the broker sent none (never 0.0). Greeks are unchanged (out of scope)."""
     g = side.get("option_greeks") or {}
-    return {k: float(g.get(k) or 0.0) for k in _GREEK_KEYS}
+    out = {k: float(g.get(k) or 0.0) for k in _GREEK_KEYS if k != "iv"}
+    iv = g.get("iv")
+    out["iv"] = float(iv) if iv is not None else None
+    return out
+
+
+def _opt_int(v):
+    """OI and similar counts: None when absent, never a made-up 0."""
+    return int(v) if v is not None else None
 
 
 def _greeks_missing(side: dict) -> bool:
@@ -35,7 +44,7 @@ def _quality_flag(
     # flag 2 — Greeks missing or both IV zero
     if _greeks_missing(ce) or _greeks_missing(pe):
         return 2
-    if ce_g["iv"] == _ZERO and pe_g["iv"] == _ZERO:
+    if not ce_g["iv"] and not pe_g["iv"]:
         return 2
 
     # flag 4 — stale (all price/greek fields identical to previous snapshot)
@@ -107,7 +116,7 @@ def to_wide_rows(
                 ce_low=float(ce.get("low") or 0.0),
                 ce_prev_close=float(ce.get("prev_close") or 0.0),
                 ce_volume=int(ce.get("volume") or 0),
-                ce_oi=int(ce.get("oi") or 0),
+                ce_oi=_opt_int(ce.get("oi")),
                 ce_iv=ce_g["iv"], ce_delta=ce_g["delta"],
                 ce_theta=ce_g["theta"], ce_gamma=ce_g["gamma"], ce_vega=ce_g["vega"],
                 pe_ltp=float(pe.get("ltp") or 0.0),
@@ -118,7 +127,7 @@ def to_wide_rows(
                 pe_low=float(pe.get("low") or 0.0),
                 pe_prev_close=float(pe.get("prev_close") or 0.0),
                 pe_volume=int(pe.get("volume") or 0),
-                pe_oi=int(pe.get("oi") or 0),
+                pe_oi=_opt_int(pe.get("oi")),
                 pe_iv=pe_g["iv"], pe_delta=pe_g["delta"],
                 pe_theta=pe_g["theta"], pe_gamma=pe_g["gamma"], pe_vega=pe_g["vega"],
             )
@@ -145,19 +154,22 @@ def to_wide_rows(
 
             # tianjin-6to: GEX — skip when Greeks are missing (quality_flag == 2)
             if flag != 2 and spot != 0:
-                ce_gex = ce_g["gamma"] * ce_oi * lotsize * spot
-                pe_gex = pe_g["gamma"] * pe_oi * lotsize * spot
+                ce_gex = ce_g["gamma"] * (ce_oi or 0) * lotsize * spot
+                pe_gex = pe_g["gamma"] * (pe_oi or 0) * lotsize * spot
                 net_gex = pe_gex - ce_gex
             else:
                 ce_gex = pe_gex = net_gex = 0.0
 
             # tianjin-6r0: per-strike PCR
-            strike_pcr = pe_oi / ce_oi if ce_oi > 0 else None
+            strike_pcr = pe_oi / ce_oi if ce_oi and pe_oi is not None else None
 
             # tianjin-bjh: delta OI vs previous cycle
+            def _delta(now_oi, prev_oi):
+                return now_oi - prev_oi if now_oi is not None and prev_oi is not None else None
+
             if prev_row is not None:
-                ce_oi_change = ce_oi - prev_row.ce_oi
-                pe_oi_change = pe_oi - prev_row.pe_oi
+                ce_oi_change = _delta(ce_oi, prev_row.ce_oi)
+                pe_oi_change = _delta(pe_oi, prev_row.pe_oi)
             else:
                 ce_oi_change = pe_oi_change = 0
 

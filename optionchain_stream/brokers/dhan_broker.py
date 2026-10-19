@@ -1,142 +1,129 @@
+"""Dhan broker adapter (Broker interface) on dhanhq 2.3.0 + the v2 market feed client.
+
+Streaming uses optionchain_stream.dhan.feed.DhanMarketFeed (connection split, paced
+subscribe, reconnect + resubscribe, stall watchdog) and ChainAssembler for state. This class
+never logs in: pass an access token, or a `token_provider` that returns the current one.
+
+For the chain-snapshot API (what Findia uses) see optionchain_stream.dhan: build a Universe,
+run DhanMarketFeed with ChainAssembler.on_packet, and a MinuteSnapshotter.
+"""
+from __future__ import annotations
+
+import asyncio
+import datetime as _dt
 import logging
-from typing import List, Dict, Any, Callable
-from datetime import datetime
-from dhanhq import dhanhq, DhanFeed
+from typing import Any, Callable, Dict, List, Optional
+
 from optionchain_stream.broker_interface import Broker
-from optionchain_stream.models import Tick
+from optionchain_stream.chain_state import ChainAssembler, ContractMeta
+from optionchain_stream.dhan import packets as P
+from optionchain_stream.dhan.feed import DhanMarketFeed, FeedInstrument
 from optionchain_stream.instrument_master.dhan_provider import DhanInstrumentProvider
 from optionchain_stream.instrument_master.instrument_provider import InstrumentProvider
+from optionchain_stream.models import Tick
+
+log = logging.getLogger(__name__)
+
 
 class DhanBroker(Broker):
-    def __init__(self, client_id: str, access_token: str):
+    def __init__(self, client_id: str, access_token: Optional[str] = None, *,
+                 token_provider: Optional[Callable[[], Optional[str]]] = None,
+                 instrument_provider: Optional[DhanInstrumentProvider] = None,
+                 feed_options: Optional[dict] = None):
+        if access_token is None and token_provider is None:
+            raise ValueError("pass access_token or token_provider")
         self.client_id = client_id
-        self.access_token = access_token
-        self.instrument_provider = DhanInstrumentProvider()
-        
-        self.dhan = dhanhq(client_id, access_token)
-        
-        # DhanFeed for WebSocket (v2.0)
-        self.feed = None
-        self.callbacks = []
-        self.subscribed_instruments = []  # List of (exchange_code: int, security_id: str)
+        self._token_provider = token_provider or (lambda: access_token)
+        self.instrument_provider = instrument_provider or DhanInstrumentProvider()
+        self.feed_options = dict(feed_options or {})
+        self.callbacks: List[Callable[[List[Tick]], None]] = []
+        self._instruments: Dict[tuple, FeedInstrument] = {}
+        self._metas: Dict[tuple, ContractMeta] = {}
+        self.feed: Optional[DhanMarketFeed] = None
+        self.assembler: Optional[ChainAssembler] = None
+        self._dhan = None
 
     def authenticate(self):
-        # Dhan auth is implicit in client init for SDK
-        pass
+        """No-op: this adapter never logs in (Dhan allows one token per account)."""
 
     def get_instrument_provider(self) -> InstrumentProvider:
         return self.instrument_provider
 
-    def subscribe(self, tokens: List[str], mode: str = "full"):
-        """
-        Subscribe to market data for given tokens.
-        
-        Args:
-            tokens: List of security IDs (tokens)
-            mode: Subscription mode (not actively used in DhanFeed v2.0)
-        """
-        instruments = []
+    def subscribe(self, tokens: List[str], mode: str = ""):
+        """Queue instruments (Dhan security ids) for the next connect(). mode: "" (default per
+        segment: index=ticker, BSE_FNO=quote, else full) | "ticker" | "quote" | "full"."""
         for token in tokens:
-            inst = self.instrument_provider.get_instrument_by_token(token)
-            if inst:
-                # Map exchange to Dhan exchange code (int)
-                exch_code = 0
-                if inst.exchange in ['NSE', 'NSE_EQ']:
-                    exch_code = 0  # NSE
-                elif inst.exchange == 'NSE_FO':
-                    exch_code = 1  # NSE_FNO
-                elif inst.exchange in ['BSE', 'BSE_EQ']:
-                    exch_code = 3  # BSE
-                elif inst.exchange == 'BSE_FO':
-                    exch_code = 4  # BSE_FNO
-                elif inst.exchange == 'MCX':
-                    exch_code = 5  # MCX
-                
-                # DhanFeed expects (exchange_code: int, security_id: str)
-                instruments.append((exch_code, str(inst.token)))
-        
-        if instruments:
-            self.subscribed_instruments.extend(instruments)
+            inst = self.instrument_provider.get_instrument_by_token(str(token))
+            if inst is None:
+                log.warning("Dhan token %s not in the scrip master; skipped", token)
+                continue
+            seg = P.SEGMENT_CODES.get(inst.exchange)
+            if seg is None:
+                log.warning("Dhan token %s: unknown segment %s; skipped", token, inst.exchange)
+                continue
+            key = (seg, int(inst.token))
+            self._instruments[key] = FeedInstrument(seg, key[1], mode if mode in
+                                                    ("ticker", "quote", "full") else "")
+            self._metas[key] = ContractMeta(
+                seg, key[1], inst.name, inst.instrument_type,
+                inst.expiry.date() if inst.expiry else None, inst.strike, inst.symbol,
+                inst.lot_size)
 
     def on_tick(self, callback: Callable[[List[Tick]], None]):
         self.callbacks.append(callback)
 
+    def _on_packet(self, pkt, shard: int) -> None:
+        self.assembler.on_packet(pkt, shard)
+        if not isinstance(pkt, (P.TickerPacket, P.QuotePacket, P.FullPacket, P.OIPacket)):
+            return
+        leg = self.assembler.leg(*pkt.key)
+        if leg is None or leg.ltp is None:
+            return
+        ts = leg.last_trade_utc or _dt.datetime.now(_dt.timezone.utc)
+        tick = Tick(
+            token=str(pkt.security_id), timestamp=ts, last_price=float(leg.ltp),
+            volume=int(leg.volume or 0), oi=int(leg.oi or 0),
+            change=(leg.ltp - leg.prev_close) if leg.prev_close else 0.0,
+            bid_price=leg.bid or 0.0, ask_price=leg.ask or 0.0,
+            bid_qty=leg.bid_qty or 0, ask_qty=leg.ask_qty or 0)
+        for cb in self.callbacks:
+            cb([tick])
+
+    def build_feed(self) -> DhanMarketFeed:
+        self.assembler = ChainAssembler(self._metas.values())
+        self.feed = DhanMarketFeed(self.client_id, self._token_provider,
+                                   self._instruments.values(), on_packet=self._on_packet,
+                                   **self.feed_options)
+        return self.feed
+
     def connect(self):
-        """Connect to Dhan WebSocket using DhanFeed v2.0"""
-        print("Connecting to Dhan WebSocket (v2.0)...")
-        
-        # DhanFeed expects instruments as list of (exchange_code: int, security_id: str)
-        self.feed = DhanFeed(self.client_id, self.access_token, self.subscribed_instruments)
-        self.feed.on_ticker = self._on_ticker
-        self.feed.run_forever()
+        """Blocking: run the feed until stop() (like the other brokers' connect())."""
+        feed = self.build_feed()
+        asyncio.run(feed.run())
 
-    def _on_ticker(self, data):
-        # Normalize data
-        # Dhan data structure needs to be mapped
-        normalized_tick = self._normalize_tick(data)
-        for callback in self.callbacks:
-            callback([normalized_tick])
+    def stop(self):
+        if self.feed is not None:
+            self.feed.stop()
 
-    def _normalize_tick(self, data: Dict) -> Tick:
-        # Map Dhan data to Tick
-        # Example data: {'type': 'Ticker', 'exchange_segment': 2, 'security_id': 456, 'LTP': 100.0, ...}
-        
-        return Tick(
-            token=str(data.get('security_id', '0')),
-            timestamp=datetime.now(), # Dhan might provide 'ltt'
-            last_price=float(data.get('LTP', 0.0)),
-            volume=int(data.get('volume', 0)),
-            oi=int(data.get('OI', 0)),
-            change=0.0, # Calculate
-            bid_price=float(data.get('depth', {}).get('buy', [{}])[0].get('price', 0.0)) if 'depth' in data else 0.0,
-            ask_price=float(data.get('depth', {}).get('sell', [{}])[0].get('price', 0.0)) if 'depth' in data else 0.0,
-            bid_qty=int(data.get('depth', {}).get('buy', [{}])[0].get('quantity', 0)) if 'depth' in data else 0,
-            ask_qty=int(data.get('depth', {}).get('sell', [{}])[0].get('quantity', 0)) if 'depth' in data else 0
-        )
+    # ---- REST option chain (dhanhq 2.3.0) ----
+
+    def _client(self):
+        if self._dhan is None:
+            from dhanhq import DhanContext, dhanhq   # dhanhq >= 2.3 API
+            self._dhan = dhanhq(DhanContext(self.client_id, self._token_provider()))
+        return self._dhan
 
     def fetch_option_chain(self, symbol: str, expiry: str) -> Dict[str, Any]:
-        """
-        Fetch option chain using Dhan API.
-        
-        Args:
-            symbol: Underlying symbol (e.g., 'NIFTY', 'BANKNIFTY')
-            expiry: Expiry date in YYYY-MM-DD format.
-        """
+        """Dhan /v2/optionchain via the SDK. `expiry` is YYYY-MM-DD. Returns the SDK response
+        ({} on error). The caller paces calls (Dhan: 1 per 3 s per underlying/expiry)."""
+        idx = next((i for i in self.instrument_provider.fetch_instruments()
+                    if i.instrument_type == "INDEX" and i.name == symbol), None)
+        if idx is None:
+            log.warning("No Dhan index row for %s", symbol)
+            return {}
         try:
-            # Dhan option_chain API requires (under_security_id, under_exchange_segment, expiry)
-            
-            # Simple mapping for common indices
-            # Based on Dhan documentation, NIFTY is 13, BANKNIFTY is 25
-            under_security_id = None
-            under_exchange_segment = "IDX_I"  # Index segment
-            
-            if symbol == 'NIFTY': 
-                under_security_id = "13"  # Nifty 50 Index
-            elif symbol == 'BANKNIFTY':
-                under_security_id = "25"  # Bank Nifty Index
-            
-            # If not found, try to find in provider
-            if not under_security_id:
-                inst = self.instrument_provider.get_instrument_by_symbol(symbol)
-                if inst:
-                    under_security_id = inst.token
-                    # Determine segment from exchange
-                    if 'INDEX' in inst.exchange:
-                        under_exchange_segment = "IDX_I"
-            
-            if under_security_id:
-                response = self.dhan.option_chain(
-                    under_security_id=under_security_id,
-                    under_exchange_segment=under_exchange_segment,
-                    expiry=expiry
-                )
-                return response
-            else:
-                logging.warning(f"Could not find security_id for {symbol}")
-                return {}
-                
-        except Exception as e:
-            logging.error(f"Error fetching Dhan option chain: {e}")
-            import traceback
-            traceback.print_exc()
+            return self._client().option_chain(under_security_id=int(idx.token),
+                                               under_exchange_segment="IDX_I", expiry=expiry)
+        except Exception as exc:
+            log.error("Dhan option chain %s %s failed: %s", symbol, expiry, exc)
             return {}

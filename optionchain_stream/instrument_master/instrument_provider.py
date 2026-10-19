@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from datetime import date
 from typing import List, Dict
@@ -32,14 +34,15 @@ class InstrumentProvider(ABC):
             not inst.underlying_symbol and inst.name == underlying
         )
 
-    def get_active_expiries(self, underlying: str) -> list[str]:
+    def get_active_expiries(self, underlying: str, today: date | None = None) -> list[str]:
         """
         Return sorted ISO-date strings of future expiries for the given underlying.
         Derived from fetch_instruments(); providers cache the download so repeat
         calls are cheap.  Returns YYYY-MM-DD strings compatible with all broker APIs.
+        `today` defaults to date.today() (pass it for deterministic results).
         """
         instruments = self.fetch_instruments()
-        today = date.today()
+        today = today or date.today()
         seen: set[str] = set()
         for inst in instruments:
             if (
